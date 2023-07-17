@@ -416,14 +416,37 @@ void gif_encode(string rgb_comps, size_t w, size_t h) {
     c_out_raw2(0x00, 0x3b); // end of gif
 }
 
-int main(int, char **argv) {
-    if (!argv[1]) {
-        cerr << "no input file" << endl;
-        exit(1);
-    }
-    ppm_t ppm;
-    read_ppm2(argv[1], &ppm);
+typedef struct {
+    char r;
+    char g;
+    char b;
+} rgb_t;
 
-    gif_encode(ppm.buffer, ppm.width, ppm.height);
+string get_frame(size_t width, size_t height, size_t t, rgb_t (*fn)(size_t left, size_t top, size_t width, size_t height, size_t t)) {
+    string output_frame;
+    for (size_t top = 0; top < height; top++) {
+        for (size_t left = 0; left < width; left++) {
+            rgb_t rgb = fn(left, top, width, height, t);
+            output_frame += rgb.r;
+            output_frame += rgb.g;
+            output_frame += rgb.b;
+        }
+    }
+    return output_frame;
+}
+
+rgb_t shader(size_t left, size_t top, size_t width, size_t height, size_t t) {
+    char r = (char)((float)left / (float)width * 255.0);
+    char g = (char)((float)top / (float)height * 255.0);
+    char b = 255u;
+    return rgb_t { r, g, b };
+}
+
+int main(int, char **argv) {
+    size_t W = 64;
+    size_t H = 64;
+    string frame = get_frame(W, H, 0, &shader);
+
+    gif_encode(frame, W, H);
     return 0;
 }
