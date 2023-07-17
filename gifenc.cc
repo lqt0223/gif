@@ -219,6 +219,7 @@ lzw_compressed_t lzw_encode(string color_indexes) {
     clear_codestr.push_back(clear_code);
     u16string end_codestr;
     end_codestr.push_back(end_code);
+    init_code_table();
     code_table.insert(clear_codestr);
     code_table.insert(end_codestr);
 
@@ -321,14 +322,12 @@ vector<vector<T>> make_chunk(vector<T> arr, size_t chunk_size) {
     return chunks;
 }
 
-void gif_encode(string rgb_comps, size_t w, size_t h) {
-    init_code_table();
-    init_color_mapping();
+void encode_frame(string frame, size_t w, size_t h) {
     string color_indexes;
-    for (size_t i = 0; i < rgb_comps.size(); i += 3) {
-        uint8_t r = rgb_comps[i + 0];
-        uint8_t g = rgb_comps[i + 1];
-        uint8_t b = rgb_comps[i + 2];
+    for (size_t i = 0; i < frame.size(); i += 3) {
+        uint8_t r = frame[i + 0];
+        uint8_t g = frame[i + 1];
+        uint8_t b = frame[i + 2];
 
         r -= r % 51;
         g -= g % 51;
@@ -337,39 +336,6 @@ void gif_encode(string rgb_comps, size_t w, size_t h) {
         uint8_t idx = color_mapping[rgb];
         color_indexes.push_back((char)idx);
     }
-    // header
-    c_out("GIF89a");
-    // lsd
-    lsd_t lsd;
-    lsd.w = w;
-    lsd.h = h;
-    lsd.packed.has_gct = 1;
-    lsd.packed.cr = 7;
-    lsd.packed.sort = 0;
-    lsd.packed.gct_sz = 7;
-    lsd.bci = 0;
-    lsd.par = 0;
-    for (uint8_t i : lsd.raw) {
-        c_out_raw(i);
-    }
-    // gct
-    for (auto kv: color_mapping) {
-        uint32_t color = kv.first;
-        uint8_t b = (color & 0xff0000) >> 16;
-        uint8_t g = (color & 0x00ff00) >> 8;
-        uint8_t r = (color & 0x0000ff);
-        c_out_raw3(r, g, b);
-    }
-    // 4 blacks for padding
-    for (size_t i = 0; i < 4; i++) {
-        c_out_raw3(0, 0, 0);
-    }
-    // Netscape Looping Application Extension
-    c_out_raw3(0x21, 0xff, 0x0b);
-    c_out("NETSCAPE2.0");
-    c_out_raw2(0x03, 0x01);
-    c_out_u16_le(0); // infinite loop
-    c_out_raw(0x00);
     // gce
     gce_t gce;
     gce.packed.disposal = 0;
@@ -413,7 +379,51 @@ void gif_encode(string rgb_comps, size_t w, size_t h) {
             c_out_raw(elem);
         }
     }
-    c_out_raw2(0x00, 0x3b); // end of gif
+    c_out_raw(0x00); // end of block
+}
+
+void gif_encode(vector<string> frames, size_t w, size_t h) {
+    init_color_mapping();
+    // header
+    c_out("GIF89a");
+    // lsd
+    lsd_t lsd;
+    lsd.w = w;
+    lsd.h = h;
+    lsd.packed.has_gct = 1;
+    lsd.packed.cr = 7;
+    lsd.packed.sort = 0;
+    lsd.packed.gct_sz = 7;
+    lsd.bci = 0;
+    lsd.par = 0;
+    for (uint8_t i : lsd.raw) {
+        c_out_raw(i);
+    }
+    // gct
+    for (auto kv: color_mapping) {
+        uint32_t color = kv.first;
+        uint8_t b = (color & 0xff0000) >> 16;
+        uint8_t g = (color & 0x00ff00) >> 8;
+        uint8_t r = (color & 0x0000ff);
+        c_out_raw3(r, g, b);
+    }
+    // 4 blacks for padding
+    for (size_t i = 0; i < 4; i++) {
+        c_out_raw3(0, 0, 0);
+    }
+    // Netscape Looping Application Extension
+    c_out_raw3(0x21, 0xff, 0x0b);
+    c_out("NETSCAPE2.0");
+    c_out_raw2(0x03, 0x01);
+    c_out_u16_le(0); // infinite loop
+    c_out_raw(0x00);
+
+    // encode frame
+    for (string frame: frames) {
+        encode_frame(frame, w, h);
+    }
+
+    c_out_raw(0x3b); // end of gif
 }
 
 typedef struct {
@@ -438,15 +448,19 @@ string get_frame(size_t width, size_t height, size_t t, rgb_t (*fn)(size_t left,
 rgb_t shader(size_t left, size_t top, size_t width, size_t height, size_t t) {
     char r = (char)((float)left / (float)width * 255.0);
     char g = (char)((float)top / (float)height * 255.0);
-    char b = 255u;
+    char b = t;
     return rgb_t { r, g, b };
 }
 
 int main(int, char **argv) {
     size_t W = 64;
     size_t H = 64;
-    string frame = get_frame(W, H, 0, &shader);
+    string f1 = get_frame(W, H, 0, &shader);
+    string f2 = get_frame(W, H, 127, &shader);
+    string f3 = get_frame(W, H, 255, &shader);
 
-    gif_encode(frame, W, H);
+    vector<string> frames = {f1, f2, f3};
+
+    gif_encode(frames, W, H);
     return 0;
 }
