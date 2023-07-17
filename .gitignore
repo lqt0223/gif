@@ -1,0 +1,8 @@
+*.gif
+*.ppm
+*.jpg
+*.out*
+*.dSYM
+.idea
+.vscode
+.DS_Store
