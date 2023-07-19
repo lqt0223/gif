@@ -448,19 +448,19 @@ string get_frame(size_t width, size_t height, size_t t, rgb_t (*fn)(size_t left,
     return output_frame;
 }
 
-rgb_t shader(size_t left, size_t top, size_t width, size_t height, size_t t) {
-    char r = (char)((float)left / (float)width * 255.0);
-    char g = (char)((float)top / (float)height * 255.0);
-    char b = (char)t;
-    return rgb_t { r, g, b };
-}
-
 int main() {
     size_t W = 64;
     size_t H = 64;
-    string f1 = get_frame(W, H, 0, &shader);
-    string f2 = get_frame(W, H, 127, &shader);
-    string f3 = get_frame(W, H, 255, &shader);
+
+    auto shader = [](size_t left, size_t top, size_t width, size_t height, size_t t) -> rgb_t {
+        char r = (char)((float)left / (float)width * 255.0);
+        char g = (char)((float)top / (float)height * 255.0);
+        char b = (char)t;
+        return rgb_t { r, g, b };
+    };
+    string f1 = get_frame(W, H, 0, shader);
+    string f2 = get_frame(W, H, 127, shader);
+    string f3 = get_frame(W, H, 255, shader);
 
     vector<string> frames = {f1, f2, f3};
 
