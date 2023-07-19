@@ -1,7 +1,5 @@
-#include <algorithm>
 #include <sstream>
 #include <string>
-#include <tuple>
 #include <vector>
 #include <map>
 #include <fstream>
@@ -341,23 +339,23 @@ vector<vector<T>> make_chunk(const vector<T>& arr, size_t chunk_size) {
 string last_color_indexes;
 
 tuple<uint16_t, uint16_t, uint16_t, uint16_t> get_diff_rect(const string& frame, const string& last_frame, uint16_t width, uint16_t height) {
-    uint16_t dleft = width - 1; 
-    uint16_t dtop = height - 1;
-    uint16_t dright = 0;
-    uint16_t dbottom = 0;
+    uint16_t d_left = width - 1;
+    uint16_t d_top = height - 1;
+    uint16_t d_right = 0;
+    uint16_t d_bottom = 0;
     for (uint16_t top = 0; top < height; top++) {
         for (uint16_t left = 0; left < width; left++) {
             uint16_t idx = top * width + left;
             bool same = frame[idx] == last_frame[idx];
             if (!same) {
-                dleft = min(dleft, left);
-                dtop = min(dtop, top);
-                dright = max(dright, left);
-                dbottom = max(dbottom, top);
+                d_left = min(d_left, left);
+                d_top = min(d_top, top);
+                d_right = max(d_right, left);
+                d_bottom = max(d_bottom, top);
             }
         }
     }
-    return tuple { dleft, dtop, dright - dleft + 1, dbottom - dtop + 1 };
+    return tuple {d_left, d_top, d_right - d_left + 1, d_bottom - d_top + 1 };
 }
 
 void encode_frame(const string& frame, uint16_t w, uint16_t h) {
@@ -374,7 +372,7 @@ void encode_frame(const string& frame, uint16_t w, uint16_t h) {
         uint8_t idx = color_mapping[rgb];
         color_indexes[i / 3] = (char)idx;
     }
-    auto [ dleft, dtop, dwidth, dheight ] = get_diff_rect(color_indexes, last_color_indexes, w, h);
+    auto [ d_left, d_top, d_width, d_height ] = get_diff_rect(color_indexes, last_color_indexes, w, h);
     // gce
     gce_t gce;
     gce.packed.disposal = 0;
@@ -389,10 +387,10 @@ void encode_frame(const string& frame, uint16_t w, uint16_t h) {
     c_out_raw(0x00); // block terminator
     // image_desc
     image_desc_t image_desc;
-    image_desc.w = dwidth;
-    image_desc.h = dheight;
-    image_desc.l = dleft;
-    image_desc.t = dtop;
+    image_desc.w = d_width;
+    image_desc.h = d_height;
+    image_desc.l = d_left;
+    image_desc.t = d_top;
     image_desc.packed.has_lct = 0;
     image_desc.packed.interlace = 0;
     image_desc.packed.lct_sz = 0;
@@ -491,31 +489,19 @@ string get_frame(uint16_t width, uint16_t height, size_t t, rgb_t (*fn)(uint16_t
 int main() {
     uint16_t W = 32;
     uint16_t H = 32;
-
-    auto shader1 = [](uint16_t left, uint16_t top, uint16_t width, uint16_t height, size_t t) -> rgb_t {
-        float w = (float)left / (float)width;
-        float h = (float)top / (float)height;
-        bool show1 = w < 0.5 && h < 0.5;
-        bool show2 = w >= 0.5 && h < 0.5;
-        bool show3 = w >= 0.5 && h >= 0.5;
-        bool show = false;
-        if (t == 0) {
-            show = show1;
-        } else if (t == 1) {
-            show = show1 || show2;
-        } else if (t == 2) {
-            show = show1 || show2 || show3;
-        } 
-        char r = show ? 255u : 0;
-        char g = 0;
-        char b = 0;
+    auto shader = [](uint16_t left, uint16_t top, uint16_t width, uint16_t height, size_t t) -> rgb_t {
+        char r = (char)((float)left / (float)width * 255.0);
+        char g = (char)((float)top / (float)height * 255.0);
+        char b = (char)t;
         return rgb_t { r, g, b };
     };
-    string f1 = get_frame(W, H, 0, shader1);
-    string f2 = get_frame(W, H, 1, shader1);
-    string f3 = get_frame(W, H, 2, shader1);
 
-    vector<string> frames = {f1, f2, f3};
+    // todo infinite loop when t = 0,1,2
+    vector<string> frames = {
+        get_frame(W, H, 0, shader),
+        get_frame(W, H, 127, shader),
+        get_frame(W, H, 255, shader)
+    };
 
     gif_encode(frames, W, H);
     return 0;
