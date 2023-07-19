@@ -1,5 +1,7 @@
+#include <algorithm>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 #include <map>
 #include <fstream>
@@ -87,8 +89,8 @@ typedef vector<pair<uint16_t, uint8_t>> lzw_compressed_t;
 typedef struct ppm_t {
     string header;
     string buffer;
-    size_t width;
-    size_t height;
+    uint16_t width;
+    uint16_t height;
 } ppm_t;
 
 void debug_lzw(lzw_compressed_t vec) {
@@ -115,7 +117,7 @@ void debug_print_vec(vector<T> vec) {
 }
 
 template<typename T>
-[[maybe_unused]] void debug_print_str(basic_string<T> str) {
+void debug_print_str(basic_string<T> str) {
     for (size_t i = 0; i < 5; i++) {
         cout << i << " " << str[i] << endl;
     }
@@ -128,7 +130,7 @@ void read_ppm2(char *filename, ppm_t *ppm) {
     ifstream file(filename, ios::binary);
     // get header, width, height substrings
     string header;
-    size_t width, height, color_max;
+    uint16_t width, height, color_max;
     // >> operator can extract a value from stream, ignoring any preceding whitespaces
     file >> header >> width >> height >> color_max;
     size_t buf_size = width * height * 3;
@@ -214,7 +216,7 @@ void init_color_mapping() {
 }
 
 // todo boxes_1.ppm
-lzw_compressed_t lzw_encode(const string& color_indexes) {
+lzw_compressed_t lzw_encode(const string& color_indexes, uint16_t l, uint16_t t, uint16_t w, uint16_t h) {
     vector<pair<uint16_t, uint8_t>> output;
     uint8_t min_code_size = 8;
     uint16_t clear_code = 1 << min_code_size;
@@ -325,8 +327,30 @@ vector<vector<T>> make_chunk(const vector<T>& arr, size_t chunk_size) {
     return chunks;
 }
 
-void encode_frame(const string& frame, size_t w, size_t h) {
-    string color_indexes;
+string last_color_indexes;
+
+tuple<uint16_t, uint16_t, uint16_t, uint16_t> get_diff_rect(const string& frame, const string& last_frame, uint16_t width, uint16_t height) {
+    uint16_t dleft = width - 1; 
+    uint16_t dtop = height - 1;
+    uint16_t dright = 0;
+    uint16_t dbottom = 0;
+    for (uint16_t top = 0; top < height; top++) {
+        for (uint16_t left = 0; left < width; left++) {
+            uint16_t idx = top * width + left;
+            bool same = frame[idx] == last_frame[idx];
+            if (!same) {
+                dleft = min(dleft, left);
+                dtop = min(dtop, top);
+                dright = max(dright, left);
+                dbottom = max(dbottom, top);
+            }
+        }
+    }
+    return tuple { dleft, dtop, dright, dbottom };
+}
+
+void encode_frame(const string& frame, uint16_t w, uint16_t h) {
+    string color_indexes(w * h, ' ');
     for (size_t i = 0; i < frame.size(); i += 3) {
         uint8_t r = frame[i + 0];
         uint8_t g = frame[i + 1];
@@ -337,14 +361,15 @@ void encode_frame(const string& frame, size_t w, size_t h) {
         b -= b % 42;
         uint32_t rgb = (b << 16) | (g << 8) | r;
         uint8_t idx = color_mapping[rgb];
-        color_indexes.push_back((char)idx);
+        color_indexes[i / 3] = (char)idx;
     }
+    auto [ dleft, dtop, dright, dbottom ] = get_diff_rect(color_indexes, last_color_indexes, w, h);
     // gce
     gce_t gce;
     gce.packed.disposal = 0;
     gce.packed.user_input = 0;
     gce.packed.transparent = 0;
-    gce.delay = 0;
+    gce.delay = 50; // speed 50 * 1/100 = 0.5s
     gce.tran_index = 0;
     c_out_raw3(0x21, 0xf9, 0x04); // block label
     for (uint8_t i : gce.raw) {
@@ -367,7 +392,7 @@ void encode_frame(const string& frame, size_t w, size_t h) {
     }
     // lzw_image_data_block
     c_out_raw(0x08); // lzw min code size
-    lzw_compressed_t lzw_compressed = lzw_encode(color_indexes);
+    lzw_compressed_t lzw_compressed = lzw_encode(color_indexes, image_desc.l, image_desc.t, image_desc.w, image_desc.h);
 #ifdef DEBUG
     debug_lzw(lzw_compressed);
 #endif
@@ -383,9 +408,12 @@ void encode_frame(const string& frame, size_t w, size_t h) {
         }
     }
     c_out_raw(0x00); // end of block
+    last_color_indexes = color_indexes;
 }
 
-void gif_encode(const vector<string>& frames, size_t w, size_t h) {
+void gif_encode(const vector<string>& frames, uint16_t w, uint16_t h) {
+    // init_last_frame_color_index
+    last_color_indexes = string(w * h,  ' ');
     init_color_mapping();
     // header
     c_out("GIF89a");
@@ -411,9 +439,10 @@ void gif_encode(const vector<string>& frames, size_t w, size_t h) {
         c_out_raw3(r, g, b);
     }
     // 4 blacks for padding
-    for (size_t i = 0; i < 4; i++) {
-        c_out_raw3(0, 0, 0);
-    }
+    c_out_raw3(0, 0, 0);
+    c_out_raw3(0, 0, 0);
+    c_out_raw3(0, 0, 0);
+    c_out_raw3(0, 0, 0);
     // Netscape Looping Application Extension
     c_out_raw3(0x21, 0xff, 0x0b);
     c_out("NETSCAPE2.0");
@@ -435,10 +464,10 @@ typedef struct {
     char b;
 } rgb_t;
 
-string get_frame(size_t width, size_t height, size_t t, rgb_t (*fn)(size_t left, size_t top, size_t width, size_t height, size_t t)) {
+string get_frame(uint16_t width, uint16_t height, size_t t, rgb_t (*fn)(uint16_t left, uint16_t top, uint16_t width, uint16_t height, size_t t)) {
     string output_frame;
-    for (size_t top = 0; top < height; top++) {
-        for (size_t left = 0; left < width; left++) {
+    for (uint16_t top = 0; top < height; top++) {
+        for (uint16_t left = 0; left < width; left++) {
             rgb_t rgb = fn(left, top, width, height, t);
             output_frame += rgb.r;
             output_frame += rgb.g;
@@ -449,10 +478,10 @@ string get_frame(size_t width, size_t height, size_t t, rgb_t (*fn)(size_t left,
 }
 
 int main() {
-    size_t W = 64;
-    size_t H = 64;
+    uint16_t W = 64;
+    uint16_t H = 64;
 
-    auto shader1 = [](size_t left, size_t top, size_t width, size_t height, size_t t) -> rgb_t {
+    auto shader1 = [](uint16_t left, uint16_t top, uint16_t width, uint16_t height, size_t t) -> rgb_t {
         float w = (float)left / (float)width;
         float h = (float)top / (float)height;
         bool show1 = (w > 0.2 && w < 0.4) && (h > 0.6 && h < 0.8);
