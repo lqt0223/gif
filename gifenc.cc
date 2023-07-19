@@ -478,15 +478,15 @@ string get_frame(uint16_t width, uint16_t height, size_t t, rgb_t (*fn)(uint16_t
 }
 
 int main() {
-    uint16_t W = 64;
-    uint16_t H = 64;
+    uint16_t W = 8;
+    uint16_t H = 8;
 
     auto shader1 = [](uint16_t left, uint16_t top, uint16_t width, uint16_t height, size_t t) -> rgb_t {
         float w = (float)left / (float)width;
         float h = (float)top / (float)height;
-        bool show1 = (w > 0.2 && w < 0.4) && (h > 0.6 && h < 0.8);
-        bool show2 = (w > 0.6 && w < 0.8) && (h > 0.6 && h < 0.8);
-        bool show3 = (w > 0.6 && w < 0.8) && (h > 0.2 && h < 0.4);
+        bool show1 = w < 0.5 && h < 0.5;
+        bool show2 = w >= 0.5 && h < 0.5;
+        bool show3 = w >= 0.5 && h >= 0.5;
         bool show = false;
         if (t == 0) {
             show = show1;
