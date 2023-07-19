@@ -216,7 +216,18 @@ void init_color_mapping() {
 }
 
 // todo boxes_1.ppm
-lzw_compressed_t lzw_encode(const string& color_indexes, uint16_t l, uint16_t t, uint16_t w, uint16_t h) {
+lzw_compressed_t lzw_encode(
+        const string& color_indexes,
+        uint16_t w, uint16_t h,
+        uint16_t dl, uint16_t dt, uint16_t dw, uint16_t dh
+    ) {
+    string rect;
+    for (uint16_t i = 0; i < dh; i++) {
+        for (uint16_t j = 0; j < dw; j++) {
+            size_t idx = (dt + i) * w + dl + j;
+            rect.push_back(color_indexes[idx]);
+        }
+    }
     vector<pair<uint16_t, uint8_t>> output;
     uint8_t min_code_size = 8;
     uint16_t clear_code = 1 << min_code_size;
@@ -233,11 +244,11 @@ lzw_compressed_t lzw_encode(const string& color_indexes, uint16_t l, uint16_t t,
     uint8_t code_size = min_code_size + 1;
 
     output.emplace_back(clear_code, code_size);
-    uint8_t first = color_indexes[0];
+    uint8_t first = rect[0];
     prev.push_back(first);
 
-    for (size_t i = 1; i < color_indexes.size(); i++) {
-        uint8_t next = color_indexes[i];
+    for (size_t i = 1; i < rect.size(); i++) {
+        uint8_t next = rect[i];
         // add clear code and reset color table here
         if (code_table.size() == 4096) { // MAX_SIZE
             init_code_table();
@@ -346,7 +357,7 @@ tuple<uint16_t, uint16_t, uint16_t, uint16_t> get_diff_rect(const string& frame,
             }
         }
     }
-    return tuple { dleft, dtop, dright, dbottom };
+    return tuple { dleft, dtop, dright - dleft + 1, dbottom - dtop + 1 };
 }
 
 void encode_frame(const string& frame, uint16_t w, uint16_t h) {
@@ -363,7 +374,7 @@ void encode_frame(const string& frame, uint16_t w, uint16_t h) {
         uint8_t idx = color_mapping[rgb];
         color_indexes[i / 3] = (char)idx;
     }
-    auto [ dleft, dtop, dright, dbottom ] = get_diff_rect(color_indexes, last_color_indexes, w, h);
+    auto [ dleft, dtop, dwidth, dheight ] = get_diff_rect(color_indexes, last_color_indexes, w, h);
     // gce
     gce_t gce;
     gce.packed.disposal = 0;
@@ -378,10 +389,10 @@ void encode_frame(const string& frame, uint16_t w, uint16_t h) {
     c_out_raw(0x00); // block terminator
     // image_desc
     image_desc_t image_desc;
-    image_desc.w = w;
-    image_desc.h = h;
-    image_desc.l = 0;
-    image_desc.t = 0;
+    image_desc.w = dwidth;
+    image_desc.h = dheight;
+    image_desc.l = dleft;
+    image_desc.t = dtop;
     image_desc.packed.has_lct = 0;
     image_desc.packed.interlace = 0;
     image_desc.packed.lct_sz = 0;
@@ -392,7 +403,7 @@ void encode_frame(const string& frame, uint16_t w, uint16_t h) {
     }
     // lzw_image_data_block
     c_out_raw(0x08); // lzw min code size
-    lzw_compressed_t lzw_compressed = lzw_encode(color_indexes, image_desc.l, image_desc.t, image_desc.w, image_desc.h);
+    lzw_compressed_t lzw_compressed = lzw_encode(color_indexes, w, h, image_desc.l, image_desc.t, image_desc.w, image_desc.h);
 #ifdef DEBUG
     debug_lzw(lzw_compressed);
 #endif
@@ -478,8 +489,8 @@ string get_frame(uint16_t width, uint16_t height, size_t t, rgb_t (*fn)(uint16_t
 }
 
 int main() {
-    uint16_t W = 8;
-    uint16_t H = 8;
+    uint16_t W = 32;
+    uint16_t H = 32;
 
     auto shader1 = [](uint16_t left, uint16_t top, uint16_t width, uint16_t height, size_t t) -> rgb_t {
         float w = (float)left / (float)width;
