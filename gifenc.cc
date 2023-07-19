@@ -452,15 +452,28 @@ int main() {
     size_t W = 64;
     size_t H = 64;
 
-    auto shader = [](size_t left, size_t top, size_t width, size_t height, size_t t) -> rgb_t {
-        char r = (char)((float)left / (float)width * 255.0);
-        char g = (char)((float)top / (float)height * 255.0);
-        char b = (char)t;
+    auto shader1 = [](size_t left, size_t top, size_t width, size_t height, size_t t) -> rgb_t {
+        float w = (float)left / (float)width;
+        float h = (float)top / (float)height;
+        bool show1 = (w > 0.2 && w < 0.4) && (h > 0.6 && h < 0.8);
+        bool show2 = (w > 0.6 && w < 0.8) && (h > 0.6 && h < 0.8);
+        bool show3 = (w > 0.6 && w < 0.8) && (h > 0.2 && h < 0.4);
+        bool show = false;
+        if (t == 0) {
+            show = show1;
+        } else if (t == 1) {
+            show = show1 || show2;
+        } else if (t == 2) {
+            show = show1 || show2 || show3;
+        } 
+        char r = show ? 255u : 0;
+        char g = 0;
+        char b = 0;
         return rgb_t { r, g, b };
     };
-    string f1 = get_frame(W, H, 0, shader);
-    string f2 = get_frame(W, H, 127, shader);
-    string f3 = get_frame(W, H, 255, shader);
+    string f1 = get_frame(W, H, 0, shader1);
+    string f2 = get_frame(W, H, 1, shader1);
+    string f3 = get_frame(W, H, 2, shader1);
 
     vector<string> frames = {f1, f2, f3};
 
