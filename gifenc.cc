@@ -2,14 +2,18 @@
 #include <string>
 #include <vector>
 #include <map>
-#include <cmath>
 #include <fstream>
 #include <iostream>
 
 using namespace std;
 
+template<typename T>
+inline T i_ceil_div(T x, T y) {
+    return x/y+(x%y != 0);
+}
+
 // integer ceil division operation
-#define i_ceil_div(x, y) (x/y + (x % y != 0))
+//#define i_ceil_div(x, y) (x/y + (x % y != 0))
 // output any expression as string auto formatted
 #define c_out(x) cout << x
 // output any expression as a char (may emit invisible character)
@@ -83,8 +87,8 @@ typedef vector<pair<uint16_t, uint8_t>> lzw_compressed_t;
 typedef struct ppm_t {
     string header;
     string buffer;
-    size_t width = 0;
-    size_t height = 0;
+    size_t width;
+    size_t height;
 } ppm_t;
 
 void debug_lzw(lzw_compressed_t vec) {
@@ -210,7 +214,7 @@ void init_color_mapping() {
 }
 
 // todo boxes_1.ppm
-lzw_compressed_t lzw_encode(string color_indexes) {
+lzw_compressed_t lzw_encode(const string& color_indexes) {
     vector<pair<uint16_t, uint8_t>> output;
     uint8_t min_code_size = 8;
     uint16_t clear_code = 1 << min_code_size;
@@ -229,10 +233,9 @@ lzw_compressed_t lzw_encode(string color_indexes) {
     output.emplace_back(clear_code, code_size);
     uint8_t first = color_indexes[0];
     prev.push_back(first);
-    color_indexes = color_indexes.substr(1, color_indexes.size() - 1);
 
-    for (uint8_t next : color_indexes) {
-
+    for (size_t i = 1; i < color_indexes.size(); i++) {
+        uint8_t next = color_indexes[i];
         // add clear code and reset color table here
         if (code_table.size() == 4096) { // MAX_SIZE
             init_code_table();
@@ -305,7 +308,7 @@ vector<uint8_t> lzw_pack(const lzw_compressed_t& codes) {
 }
 
 template<typename T>
-vector<vector<T>> make_chunk(vector<T> arr, size_t chunk_size) {
+vector<vector<T>> make_chunk(const vector<T>& arr, size_t chunk_size) {
     vector<vector<T>> chunks;
     size_t num_of_chunks = i_ceil_div(arr.size(), chunk_size);
     for (size_t i = 0; i < num_of_chunks; i++) {
@@ -322,7 +325,7 @@ vector<vector<T>> make_chunk(vector<T> arr, size_t chunk_size) {
     return chunks;
 }
 
-void encode_frame(string frame, size_t w, size_t h) {
+void encode_frame(const string& frame, size_t w, size_t h) {
     string color_indexes;
     for (size_t i = 0; i < frame.size(); i += 3) {
         uint8_t r = frame[i + 0];
@@ -382,7 +385,7 @@ void encode_frame(string frame, size_t w, size_t h) {
     c_out_raw(0x00); // end of block
 }
 
-void gif_encode(vector<string> frames, size_t w, size_t h) {
+void gif_encode(const vector<string>& frames, size_t w, size_t h) {
     init_color_mapping();
     // header
     c_out("GIF89a");
@@ -419,7 +422,7 @@ void gif_encode(vector<string> frames, size_t w, size_t h) {
     c_out_raw(0x00);
 
     // encode frame
-    for (string frame: frames) {
+    for (const string& frame: frames) {
         encode_frame(frame, w, h);
     }
 
@@ -448,11 +451,11 @@ string get_frame(size_t width, size_t height, size_t t, rgb_t (*fn)(size_t left,
 rgb_t shader(size_t left, size_t top, size_t width, size_t height, size_t t) {
     char r = (char)((float)left / (float)width * 255.0);
     char g = (char)((float)top / (float)height * 255.0);
-    char b = t;
+    char b = (char)t;
     return rgb_t { r, g, b };
 }
 
-int main(int, char **argv) {
+int main() {
     size_t W = 64;
     size_t H = 64;
     string f1 = get_frame(W, H, 0, &shader);
