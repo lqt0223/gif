@@ -1,0 +1,175 @@
+#include <cassert>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include "gif.h"
+
+using namespace std;
+
+char buf[256];
+map<uint16_t, u16string> code_table;
+typedef struct {
+    uint8_t cr;
+    const string& gct;
+    string& framebuffer;
+} dec_ctx_t;
+
+void init_code_table(uint8_t init_table_size) {
+    code_table.clear();
+    for (uint8_t i = 0; i < init_table_size; i++) {
+        u16string c;
+        c.push_back(i);
+        code_table[code_table.size()] = c;
+    }
+}
+
+#define read_assert_str_equal(file, str, err) \
+    file.read(buf, sizeof(str) - 1); \
+    assert(!memcmp(buf, str, sizeof(str) - 1) && err)
+
+#define read_assert_num_equal(file, num, err) \
+    file.read(buf, 1); \
+    assert(buf[0] == num && err)
+
+// inline void read_assert_str_equal( ifstream& file, const char* str, const char* err) {
+//     auto len = sizeof(*str);
+//     cerr<<str<<" "<<len<<endl;
+//     file.read(buf, len);
+//     if (!memcmp(buf, str, len)) {
+//         cerr<<"error"<<endl;
+//     } else {
+//         cerr<<"ok" <<endl;
+//     }
+// }
+
+// todo
+// inline void expect(ifstream& file, const char* some_str, const size_t n) {
+// }
+
+void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
+    uint8_t min_code_size = ctx.cr + 1;
+    uint16_t clear_code = 1 << min_code_size;
+    uint16_t end_code = clear_code + 1;
+
+    init_code_table(1 << min_code_size);
+    code_table[clear_code] = u16string(1, clear_code);
+    code_table[end_code] = u16string(1, end_code);
+
+    uint8_t code_size = min_code_size + 1;
+    uint32_t n_bit = 0;
+    u16string output; // unpacked decoded color table indexes
+
+    u8string bytes; // packed bytes from all sub blocks
+
+    // while we are not at the end of all sub blocks
+    while (file.peek() != 0x00) {
+        uint8_t sub_block_size;
+        file.get((char&)sub_block_size);
+        string sub_block_data(sub_block_size, ' ');
+        // get sub block data
+        file.read(&sub_block_data[0], sub_block_size);
+        for (uint8_t c: sub_block_data) {
+            bytes.push_back(c);
+        }
+        // bytes.append(sub_block_data);
+    }
+    file.seekg(1, ios::cur); // skip end of block
+
+    // first code is clear_code
+    output.append(u16string { clear_code });
+    n_bit += code_size;
+    // extract second code from bytes
+    uint16_t prev_code = end_code;
+    while (1) {
+        // the bit position - amount to shift left
+        uint16_t start_shift = n_bit % 8;
+        uint16_t end_shift = (n_bit + code_size) % 8;
+        // the index position of bytestream
+        uint16_t start_index = n_bit / 8;
+        uint16_t end_index = (n_bit + code_size) / 8;
+
+        uint16_t end_loop = end_shift > 0 ? end_index - start_index : end_index - start_index - 1;
+
+        uint16_t code = 0;
+        for (uint8_t j = 0; j <= end_loop; j++) {
+            code |= (bytes[start_index + j] << (8 * j));
+        }
+        // right shift to remove low bits
+        code >>= start_shift;
+        // mask to remove high bits
+        uint16_t mask = (1 << (code_size)) - 1;
+        code &= mask;
+
+        if (code == end_code) break;
+
+        // lzw decoding
+        if (code_table.contains(code)) {
+            u16string indexes = code_table[code];
+            output.append(indexes);
+            if (prev_code == end_code) {
+                prev_code = code; // todo this case is the 2nd code, should be moved out of loop
+            } else {
+                code_table[code_table.size()] = code_table[prev_code] + u16string{ indexes[0] };
+                prev_code = code;
+            }
+        } else {
+            u16string prev_indexes = code_table[prev_code];
+            u16string new_indexes = prev_indexes + u16string { prev_indexes[0] };
+            output.append(new_indexes);
+            code_table[code_table.size()] = new_indexes;
+            prev_code = code;
+        }
+        n_bit += code_size;
+        if (code_table.size() == (1 << code_size)) {
+            code_size++;
+        }
+    }
+}
+
+void decode_frame(ifstream& file, dec_ctx_t ctx) {
+    // graphic control extension
+    read_assert_str_equal(file, "\x21\xf9\x04", "graphic control extension header error");
+    gce_t gce;
+    file.read((char*)gce.raw, sizeof(gce.raw));
+    read_assert_str_equal(file, "\x00", "graphic control extension block terminal error");
+
+    // image descriptor
+    read_assert_str_equal(file, "\x2c", "graphic control extension block terminal error");
+    image_desc_t image_desc;
+    file.read((char*)image_desc.raw, sizeof(image_desc.raw));
+
+    // lzw-encoded block
+    uint8_t min_code_size = ctx.cr + 1;
+    read_assert_num_equal(file, min_code_size, "lzw min-code-size error");
+
+    lzw_unpack_decode(file, ctx);
+}
+
+int main(int argc, char** argv) {
+    assert(argc >= 2 && "no input file");
+    char* filename = argv[1];
+    ifstream file(filename, ios::binary);
+    assert(file.is_open() && "open file error");
+
+    read_assert_str_equal(file, "GIF89a", "not gif89 file");
+    // logical screen descriptor
+    lsd_t lsd;
+    file.read((char*)lsd.raw, sizeof(lsd.raw));
+    // global color table
+    uint16_t gct_real_size = (1 << (lsd.packed.gct_sz + 1)) * 3;
+    string global_color_table(gct_real_size, ' ');
+    file.read(&global_color_table[0], gct_real_size);
+
+    // framebuffer
+    string framebuffer(lsd.w * lsd.h * 3, ' ');
+// Netscape Looping Application Extension todo this block is optional
+    // read_assert_str_equal(file, "\x21\xff\x0b", "netscape looping application extension header error");
+    // read_assert_str_equal(file, "NETSCAPE2.0", "netscape looping application extension identifier error");
+    // read_assert_str_equal(file, "\x03\x01\x00\x00\x00", "netscape looping application extension content error");
+
+    // while (file.peek() != 0x3b) {
+    dec_ctx_t ctx = { lsd.packed.cr, global_color_table, framebuffer };
+    decode_frame(file, ctx);
+    // }
+}
