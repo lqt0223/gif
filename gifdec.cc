@@ -8,7 +8,7 @@
 using namespace std;
 
 char buf[256];
-map<uint16_t, u16string> code_table;
+map<uint16_t, string> code_table;
 typedef struct {
     uint8_t cr;
     const string& gct;
@@ -18,9 +18,7 @@ typedef struct {
 void init_code_table(uint8_t init_table_size) {
     code_table.clear();
     for (uint8_t i = 0; i < init_table_size; i++) {
-        u16string c;
-        c.push_back(i);
-        code_table[code_table.size()] = c;
+        code_table[code_table.size()] = string(1, i);
     }
 }
 
@@ -53,12 +51,12 @@ void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
     uint16_t end_code = clear_code + 1;
 
     init_code_table(1 << min_code_size);
-    code_table[clear_code] = u16string(1, clear_code);
-    code_table[end_code] = u16string(1, end_code);
+    code_table[clear_code] = string(1, clear_code);
+    code_table[end_code] = string(1, end_code);
 
     uint8_t code_size = min_code_size + 1;
     uint32_t n_bit = 0;
-    u16string output; // unpacked decoded color table indexes
+    string output; // unpacked decoded color table indexes
 
     u8string bytes; // packed bytes from all sub blocks
 
@@ -77,7 +75,6 @@ void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
     file.seekg(1, ios::cur); // skip end of block
 
     // first code is clear_code
-    output.append(u16string { clear_code });
     n_bit += code_size;
     // extract second code from bytes
     uint16_t prev_code = end_code;
@@ -105,17 +102,17 @@ void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
 
         // lzw decoding
         if (code_table.contains(code)) {
-            u16string indexes = code_table[code];
+            string indexes = code_table[code];
             output.append(indexes);
             if (prev_code == end_code) {
                 prev_code = code; // todo this case is the 2nd code, should be moved out of loop
             } else {
-                code_table[code_table.size()] = code_table[prev_code] + u16string{ indexes[0] };
+                code_table[code_table.size()] = code_table[prev_code] + string(1, indexes[0]);
                 prev_code = code;
             }
         } else {
-            u16string prev_indexes = code_table[prev_code];
-            u16string new_indexes = prev_indexes + u16string { prev_indexes[0] };
+            string prev_indexes = code_table[prev_code];
+            string new_indexes = prev_indexes + string(1, prev_indexes[0]);
             output.append(new_indexes);
             code_table[code_table.size()] = new_indexes;
             prev_code = code;
@@ -124,6 +121,10 @@ void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
         if (code_table.size() == (1 << code_size)) {
             code_size++;
         }
+    }
+    for (size_t i = 0; i < output.size(); i++) {
+        printf("%d ",output[i]);
+        if (i % 10 == 9) printf("\n");
     }
 }
 
