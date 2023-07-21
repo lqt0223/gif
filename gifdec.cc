@@ -12,7 +12,7 @@ map<uint16_t, string> code_table;
 typedef struct {
     uint8_t cr;
     const string& gct;
-    string& framebuffer;
+    string& framebuffer; // rgb packed
 } dec_ctx_t;
 
 void init_code_table(uint8_t init_table_size) {
@@ -56,7 +56,6 @@ void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
 
     uint8_t code_size = min_code_size + 1;
     uint32_t n_bit = 0;
-    string output; // unpacked decoded color table indexes
 
     u8string bytes; // packed bytes from all sub blocks
 
@@ -78,6 +77,7 @@ void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
     n_bit += code_size;
     // extract second code from bytes
     uint16_t prev_code = end_code;
+    char* fb_ptr = &ctx.framebuffer[0];
     while (1) {
         // the bit position - amount to shift left
         uint16_t start_shift = n_bit % 8;
@@ -103,7 +103,10 @@ void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
         // lzw decoding
         if (code_table.contains(code)) {
             string indexes = code_table[code];
-            output.append(indexes);
+            for (size_t i = 0; i < indexes.size(); i++) {
+                memcpy(fb_ptr, &ctx.gct[indexes[i]*3], 3);
+                fb_ptr += 3;
+            }
             if (prev_code == end_code) {
                 prev_code = code; // todo this case is the 2nd code, should be moved out of loop
             } else {
@@ -113,7 +116,10 @@ void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
         } else {
             string prev_indexes = code_table[prev_code];
             string new_indexes = prev_indexes + string(1, prev_indexes[0]);
-            output.append(new_indexes);
+            for (size_t i = 0; i < new_indexes.size(); i++) {
+                memcpy(fb_ptr, &ctx.gct[new_indexes[i]*3], 3);
+                fb_ptr += 3;
+            }
             code_table[code_table.size()] = new_indexes;
             prev_code = code;
         }
@@ -122,10 +128,10 @@ void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
             code_size++;
         }
     }
-    for (size_t i = 0; i < output.size(); i++) {
-        printf("%d ",output[i]);
-        if (i % 10 == 9) printf("\n");
-    }
+    // for (size_t i = 0; i < ctx.framebuffer.size(); i++) {
+    //     printf("%03d ",(unsigned char)ctx.framebuffer[i]);
+    //     if (i % 30 == 29) printf("\n");
+    // }
 }
 
 void decode_frame(ifstream& file, dec_ctx_t ctx) {
@@ -159,8 +165,8 @@ int main(int argc, char** argv) {
     file.read((char*)lsd.raw, sizeof(lsd.raw));
     // global color table
     uint16_t gct_real_size = (1 << (lsd.packed.gct_sz + 1)) * 3;
-    string global_color_table(gct_real_size, ' ');
-    file.read(&global_color_table[0], gct_real_size);
+    string gct(gct_real_size, ' ');
+    file.read(&gct[0], gct_real_size);
 
     // framebuffer
     string framebuffer(lsd.w * lsd.h * 3, ' ');
@@ -170,7 +176,7 @@ int main(int argc, char** argv) {
     // read_assert_str_equal(file, "\x03\x01\x00\x00\x00", "netscape looping application extension content error");
 
     // while (file.peek() != 0x3b) {
-    dec_ctx_t ctx = { lsd.packed.cr, global_color_table, framebuffer };
+    dec_ctx_t ctx = { lsd.packed.cr, gct, framebuffer };
     decode_frame(file, ctx);
     // }
 }
