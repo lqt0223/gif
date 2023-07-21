@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include "gif.h"
+#include <SDL2/SDL.h>
 
 using namespace std;
 
@@ -178,5 +179,29 @@ int main(int argc, char** argv) {
     // while (file.peek() != 0x3b) {
     dec_ctx_t ctx = { lsd.packed.cr, gct, framebuffer };
     decode_frame(file, ctx);
-    // }
+
+    // draw decoded framebuffer with sdl
+    // todo sdl error handling
+    SDL_Init(SDL_INIT_EVERYTHING);
+    SDL_Window* window = SDL_CreateWindow("gif decoder", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, lsd.w, lsd.h, SDL_WINDOW_OPENGL);
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    SDL_Surface* surf = SDL_CreateRGBSurfaceFrom(ctx.framebuffer.data(), lsd.w, lsd.h, 3 * 8, lsd.w * 3, 0x0000FF, 0x00FF00, 0xFF0000, 0);
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_FreeSurface(surf);
+
+    while (1) {
+	SDL_Event e;
+        if (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT) {
+                break;
+            }
+        }
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, tex, NULL, NULL);
+        SDL_RenderPresent(renderer);
+    }
+    SDL_DestroyTexture(tex);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
 }
