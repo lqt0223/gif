@@ -13,7 +13,8 @@ map<uint16_t, u8string> code_table;
 typedef struct {
     uint8_t cr;
     const string& gct;
-    string& framebuffer; // rgb packed
+    char* framebuffer; // rgb packed
+    size_t buf_size;
 } dec_ctx_t;
 
 void init_code_table(uint16_t init_table_size) {
@@ -31,22 +32,7 @@ void init_code_table(uint16_t init_table_size) {
     file.read(buf, 1); \
     assert(buf[0] == num && err)
 
-// inline void read_assert_str_equal( ifstream& file, const char* str, const char* err) {
-//     auto len = sizeof(*str);
-//     cerr<<str<<" "<<len<<endl;
-//     file.read(buf, len);
-//     if (!memcmp(buf, str, len)) {
-//         cerr<<"error"<<endl;
-//     } else {
-//         cerr<<"ok" <<endl;
-//     }
-// }
-
-// todo
-// inline void expect(ifstream& file, const char* some_str, const size_t n) {
-// }
-
-void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
+void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
     uint8_t min_code_size = ctx.cr + 1;
     uint16_t clear_code = 1 << min_code_size;
     uint16_t end_code = clear_code + 1;
@@ -78,34 +64,35 @@ void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
     // first code is clear_code
     n_bit += code_size;
     // extract second code from bytes
-    uint16_t prev_code = end_code;
-    char* fb_ptr = &ctx.framebuffer[0];
+    uint32_t prev_code = end_code;
+    char* fb_ptr = ctx.framebuffer;
     while (1) {
         // the bit position - amount to shift left
-        uint16_t start_shift = n_bit % 8;
-        uint16_t end_shift = (n_bit + code_size) % 8;
+        uint32_t start_shift = n_bit % 8;
+        uint32_t end_shift = (n_bit + code_size) % 8;
         // the index position of bytestream
-        uint16_t start_index = n_bit / 8;
-        uint16_t end_index = (n_bit + code_size) / 8;
+        uint32_t start_index = n_bit / 8;
+        uint32_t end_index = (n_bit + code_size) / 8;
 
-        uint16_t end_loop = end_shift > 0 ? end_index - start_index : end_index - start_index - 1;
+        uint32_t end_loop = end_shift > 0 ? end_index - start_index : end_index - start_index - 1;
 
-        uint16_t code = 0;
+        uint32_t code = 0;
         for (uint8_t j = 0; j <= end_loop; j++) {
             code |= (bytes[start_index + j] << (8 * j));
         }
         // right shift to remove low bits
         code >>= start_shift;
         // mask to remove high bits
-        uint16_t mask = (1 << (code_size)) - 1;
+        uint32_t mask = (1 << (code_size)) - 1;
         code &= mask;
 
-        if (code == end_code) break;
+        if (code == end_code || fb_ptr - ctx.framebuffer >= ctx.buf_size) break;
 
         // lzw decoding
         if (code_table.contains(code)) {
             u8string indexes = code_table[code];
             for (size_t i = 0; i < indexes.size(); i++) {
+                // todo the fb_ptr bad memory access(framebuffer too large?)
                 memcpy(fb_ptr, &ctx.gct[indexes[i]*3], 3);
                 fb_ptr += 3;
             }
@@ -136,7 +123,7 @@ void lzw_unpack_decode(ifstream& file, dec_ctx_t ctx) {
     // }
 }
 
-void decode_frame(ifstream& file, dec_ctx_t ctx) {
+void decode_frame(ifstream& file, const dec_ctx_t& ctx) {
     // graphic control extension
     read_assert_str_equal(file, "\x21\xf9\x04", "graphic control extension header error");
     gce_t gce;
@@ -171,22 +158,24 @@ int main(int argc, char** argv) {
     file.read(&gct[0], gct_real_size);
 
     // framebuffer
-    string framebuffer(lsd.w * lsd.h * 3, ' ');
+    size_t buf_size = lsd.w*lsd.h*3;
+    char* framebuffer = new char[buf_size];
     // Netscape Looping Application Extension todo this block is optional
     read_assert_str_equal(file, "\x21\xff\x0b", "netscape looping application extension header error");
     read_assert_str_equal(file, "NETSCAPE2.0", "netscape looping application extension identifier error");
     read_assert_str_equal(file, "\x03\x01\x00\x00\x00", "netscape looping application extension content error");
 
     // while (file.peek() != 0x3b) {
-    dec_ctx_t ctx = { lsd.packed.cr, gct, framebuffer };
+    dec_ctx_t ctx = { lsd.packed.cr, gct, framebuffer, buf_size };
     decode_frame(file, ctx);
 
+    file.close();
     // draw decoded framebuffer with sdl
     // todo sdl error handling
     SDL_Init(SDL_INIT_EVERYTHING);
     SDL_Window* window = SDL_CreateWindow("gif decoder", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, lsd.w, lsd.h, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    SDL_Surface* surf = SDL_CreateRGBSurfaceFrom(ctx.framebuffer.data(), lsd.w, lsd.h, 3 * 8, lsd.w * 3, 0x0000FF, 0x00FF00, 0xFF0000, 0);
+    SDL_Surface* surf = SDL_CreateRGBSurfaceFrom(ctx.framebuffer, lsd.w, lsd.h, 3 * 8, lsd.w * 3, 0x0000FF, 0x00FF00, 0xFF0000, 0);
     SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
     SDL_FreeSurface(surf);
 
@@ -205,4 +194,5 @@ int main(int argc, char** argv) {
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
+    delete[] framebuffer;
 }
