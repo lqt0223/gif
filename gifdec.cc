@@ -5,6 +5,7 @@
 #include <iostream>
 #include "gif.h"
 #include <SDL2/SDL.h>
+#include <sstream>
 
 using namespace std;
 
@@ -178,12 +179,28 @@ int main(int argc, char** argv) {
     SDL_Surface* surf = SDL_CreateRGBSurfaceFrom(ctx.framebuffer, lsd.w, lsd.h, 3 * 8, lsd.w * 3, 0x0000FF, 0x00FF00, 0xFF0000, 0);
     SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
     SDL_FreeSurface(surf);
+    stringstream s;
 
+    int window_w, window_h, mouse_x, mouse_y, idx;
+    unsigned char r,g,b;
     while (1) {
 	SDL_Event e;
         if (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) {
                 break;
+            }
+            if (e.type == SDL_MOUSEMOTION) {
+                s.seekp(0);
+                SDL_GetWindowSize(window, &window_w, &window_h);
+                mouse_x = e.motion.x * lsd.w / window_w;
+                mouse_y = e.motion.y * lsd.h / window_h;
+                s << mouse_x << ' ' << mouse_y << ' ';
+                idx = (lsd.w * mouse_y + mouse_x) * 3;
+                r = ctx.framebuffer[idx];
+                g = ctx.framebuffer[idx+1];
+                b = ctx.framebuffer[idx+2];
+                s << r + 0 << ' ' << g + 0 << ' ' << b + 0 << endl;
+                SDL_SetWindowTitle(window, s.str().c_str());
             }
         }
         SDL_RenderClear(renderer);
