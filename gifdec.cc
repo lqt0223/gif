@@ -37,6 +37,7 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
     uint8_t min_code_size = ctx.cr + 1;
     uint16_t clear_code = 1 << min_code_size;
     uint16_t end_code = clear_code + 1;
+    char* fb_ptr = ctx.framebuffer;
 
     uint16_t table_size = 1 << min_code_size;
     init_code_table(table_size);
@@ -62,12 +63,7 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
     }
     file.seekg(1, ios::cur); // skip end of block
 
-    // first code is clear_code
-    n_bit += code_size;
-    // extract second code from bytes
-    uint32_t prev_code = end_code;
-    char* fb_ptr = ctx.framebuffer;
-    while (1) {
+    auto get_next_code = [&n_bit, &code_size, &bytes]() {
         // the bit position - amount to shift left
         uint32_t start_shift = n_bit % 8;
         uint32_t end_shift = (n_bit + code_size) % 8;
@@ -86,6 +82,28 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
         // mask to remove high bits
         uint32_t mask = (1 << (code_size)) - 1;
         code &= mask;
+        n_bit += code_size;
+        return code;
+    };
+
+    // first code is clear_code - skip
+    n_bit += code_size;
+    // extract second code from bytes
+    uint32_t code = get_next_code();
+
+    u8string indexes = code_table[code];
+    for (size_t i = 0; i < indexes.size(); i++) {
+        memcpy(fb_ptr, &ctx.gct[indexes[i]*3], 3);
+        fb_ptr += 3;
+    }
+    uint32_t prev_code = code;
+
+    while (1) {
+        // todo debug only
+        size_t idx = (fb_ptr - ctx.framebuffer) / 3;
+        size_t l = idx % 99;
+        size_t t = idx / 99;
+        uint32_t code = get_next_code();
 
         if (code == end_code || fb_ptr - ctx.framebuffer >= ctx.buf_size) break;
 
@@ -93,16 +111,11 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
         if (code_table.contains(code)) {
             u8string indexes = code_table[code];
             for (size_t i = 0; i < indexes.size(); i++) {
-                // todo the fb_ptr bad memory access(framebuffer too large?)
                 memcpy(fb_ptr, &ctx.gct[indexes[i]*3], 3);
                 fb_ptr += 3;
             }
-            if (prev_code == end_code) {
-                prev_code = code; // todo this case is the 2nd code, should be moved out of loop
-            } else {
-                code_table[code_table.size()] = code_table[prev_code] + u8string(1, indexes[0]);
-                prev_code = code;
-            }
+            code_table[code_table.size()] = code_table[prev_code] + u8string(1, indexes[0]);
+            prev_code = code;
         } else {
             u8string prev_indexes = code_table[prev_code];
             u8string new_indexes = prev_indexes + u8string(1, prev_indexes[0]);
@@ -113,7 +126,6 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
             code_table[code_table.size()] = new_indexes;
             prev_code = code;
         }
-        n_bit += code_size;
         if (code_table.size() == (1 << code_size)) {
             code_size++;
         }
