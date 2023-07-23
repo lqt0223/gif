@@ -63,7 +63,7 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
     }
     file.seekg(1, ios::cur); // skip end of block
 
-    auto get_next_code = [&n_bit, &code_size, &bytes]() {
+    auto get_next_code = [&]() {
         // the bit position - amount to shift left
         uint32_t start_shift = n_bit % 8;
         uint32_t end_shift = (n_bit + code_size) % 8;
@@ -71,7 +71,7 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
         uint32_t start_index = n_bit / 8;
         uint32_t end_index = (n_bit + code_size) / 8;
 
-        uint32_t end_loop = end_shift > 0 ? end_index - start_index : end_index - start_index - 1;
+        uint32_t end_loop = end_index - start_index;
 
         uint32_t code = 0;
         for (uint8_t j = 0; j <= end_loop; j++) {
@@ -105,7 +105,16 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
         size_t t = idx / 99;
         uint32_t code = get_next_code();
 
-        if (code == end_code || fb_ptr - ctx.framebuffer >= ctx.buf_size) break;
+        if (code == clear_code) {
+            init_code_table(table_size);
+            // todo why
+            // code_table[clear_code] = u8string(1, clear_code);
+            // code_table[end_code] = u8string(1, end_code);
+            code_size = min_code_size + 1;
+            continue;
+        } else if (code == end_code || fb_ptr - ctx.framebuffer >= ctx.buf_size) {
+            break;
+        }
 
         // lzw decoding
         if (code_table.contains(code)) {
