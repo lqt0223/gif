@@ -5,6 +5,7 @@
 #include <iostream>
 #include "gif.h"
 #include <SDL2/SDL.h>
+#include <istream>
 #include <sstream>
 
 using namespace std;
@@ -33,22 +34,8 @@ void init_code_table(uint16_t init_table_size) {
     file.read(buf, 1); \
     assert(buf[0] == num && err)
 
-void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
-    uint8_t min_code_size = ctx.cr + 1;
-    uint16_t clear_code = 1 << min_code_size;
-    uint16_t end_code = clear_code + 1;
-    char* fb_ptr = ctx.framebuffer;
-
-    uint16_t table_size = 1 << min_code_size;
-    init_code_table(table_size);
-    code_table[clear_code] = u8string(1, clear_code);
-    code_table[end_code] = u8string(1, end_code);
-
-    uint8_t code_size = min_code_size + 1;
-    uint32_t n_bit = 0;
-
-    u8string bytes; // packed bytes from all sub blocks
-
+u8string bytes_from_all_subblocks(istream& file) {
+    u8string bytes;
     // while we are not at the end of all sub blocks
     while (file.peek() != 0x00) {
         uint8_t sub_block_size;
@@ -62,6 +49,22 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
         // bytes.append(sub_block_data);
     }
     file.seekg(1, ios::cur); // skip end of block
+    return bytes;
+}
+
+void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
+    char* fb_ptr = ctx.framebuffer;
+
+    uint8_t min_code_size = ctx.cr + 1;
+    uint16_t clear_code = 1 << min_code_size;
+    uint16_t end_code = clear_code + 1;
+    uint16_t table_size = 1 << min_code_size;
+    uint32_t n_bit = 0;
+    uint32_t code, prev_code;
+    uint8_t code_size;
+    u8string indexes;
+
+    u8string bytes = bytes_from_all_subblocks(file); // packed bytes from all sub blocks
 
     auto get_next_code = [&]() {
         // the bit position - amount to shift left
@@ -86,32 +89,39 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
         return code;
     };
 
+clear:
+    init_code_table(table_size);
+    code_table[clear_code] = u8string(1, clear_code);
+    code_table[end_code] = u8string(1, end_code);
+    code_size = min_code_size + 1;
+
     // first code is clear_code - skip
     n_bit += code_size;
     // extract second code from bytes
-    uint32_t code = get_next_code();
+    code = get_next_code();
 
-    u8string indexes = code_table[code];
+    indexes = code_table[code];
     for (size_t i = 0; i < indexes.size(); i++) {
         memcpy(fb_ptr, &ctx.gct[indexes[i]*3], 3);
         fb_ptr += 3;
     }
-    uint32_t prev_code = code;
+    prev_code = code;
 
     while (1) {
         // todo debug only
         size_t idx = (fb_ptr - ctx.framebuffer) / 3;
         size_t l = idx % 99;
         size_t t = idx / 99;
-        uint32_t code = get_next_code();
+        code = get_next_code();
 
         if (code == clear_code) {
-            init_code_table(table_size);
-            // todo why
-            // code_table[clear_code] = u8string(1, clear_code);
-            // code_table[end_code] = u8string(1, end_code);
-            code_size = min_code_size + 1;
-            continue;
+            // todo this is not right
+            u8string prev_indexes = code_table[prev_code];
+            for (size_t i = 1; i < prev_indexes.size(); i++) {
+                memcpy(fb_ptr, &ctx.gct[prev_indexes[i]*3], 3);
+                fb_ptr += 3;
+            }
+            goto clear;
         } else if (code == end_code || fb_ptr - ctx.framebuffer >= ctx.buf_size) {
             break;
         }
