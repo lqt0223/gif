@@ -89,14 +89,15 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
         return code;
     };
 
+    code_size = min_code_size + 1;
+    // first code is clear_code - skip
+    n_bit += code_size;
 clear:
     init_code_table(table_size);
     code_table[clear_code] = u8string(1, clear_code);
     code_table[end_code] = u8string(1, end_code);
     code_size = min_code_size + 1;
 
-    // first code is clear_code - skip
-    n_bit += code_size;
     // extract second code from bytes
     code = get_next_code();
 
@@ -115,12 +116,6 @@ clear:
         code = get_next_code();
 
         if (code == clear_code) {
-            // todo this is not right
-            u8string prev_indexes = code_table[prev_code];
-            for (size_t i = 1; i < prev_indexes.size(); i++) {
-                memcpy(fb_ptr, &ctx.gct[prev_indexes[i]*3], 3);
-                fb_ptr += 3;
-            }
             goto clear;
         } else if (code == end_code || fb_ptr - ctx.framebuffer >= ctx.buf_size) {
             break;
