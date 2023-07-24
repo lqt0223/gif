@@ -206,7 +206,7 @@ int main(int argc, char** argv) {
     while (1) {
         current = SDL_GetTicks();
         ts = current - start;
-        num_of_frame = (ts / 500) % total_frames;
+        num_of_frame = (ts / 16) % total_frames;
         SDL_LockTexture(tex, NULL, (void**)&framebuffer, &pitch);
         memcpy(framebuffer, frames[num_of_frame], buf_size);
         SDL_UnlockTexture(tex);
