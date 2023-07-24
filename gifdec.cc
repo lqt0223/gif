@@ -176,15 +176,18 @@ int main(int argc, char** argv) {
     // framebuffer
     size_t buf_size = lsd.w*lsd.h*4;
     char* framebuffer = new char[buf_size];
-    char* frame = new char[buf_size];
+    vector<char*> frames;
     // Netscape Looping Application Extension todo this block is optional
     read_assert_str_equal(file, "\x21\xff\x0b", "netscape looping application extension header error");
     read_assert_str_equal(file, "NETSCAPE2.0", "netscape looping application extension identifier error");
     read_assert_str_equal(file, "\x03\x01\x00\x00\x00", "netscape looping application extension content error");
 
-    // while (file.peek() != 0x3b) {
-    dec_ctx_t ctx = { lsd.packed.cr, gct, buf_size };
-    decode_frame(file, ctx, frame);
+    while (file.peek() != 0x3b) {
+        char* frame = new char[buf_size];
+        dec_ctx_t ctx = { lsd.packed.cr, gct, buf_size };
+        decode_frame(file, ctx, frame);
+        frames.push_back(frame);
+    }
 
     // draw decoded framebuffer with sdl
     // todo sdl error handling
@@ -197,19 +200,15 @@ int main(int argc, char** argv) {
 
     int window_w, window_h, mouse_x, mouse_y, idx;
     unsigned char r,g,b;
-    bool toggle = false;
-    uint32_t start, current, ts;
+    uint32_t start, current, ts, num_of_frame;
     start = SDL_GetTicks();
+    size_t total_frames = frames.size();
     while (1) {
         current = SDL_GetTicks();
         ts = current - start;
-        toggle = (ts / 100) % 2;
+        num_of_frame = (ts / 500) % total_frames;
         SDL_LockTexture(tex, NULL, (void**)&framebuffer, &pitch);
-        if (!toggle) {
-            memset(framebuffer, 0, buf_size);
-        } else {
-            memcpy(framebuffer, frame, buf_size);
-        }
+        memcpy(framebuffer, frames[num_of_frame], buf_size);
         SDL_UnlockTexture(tex);
 	SDL_Event e;
         if (SDL_PollEvent(&e)) {
@@ -239,4 +238,5 @@ int main(int argc, char** argv) {
     SDL_DestroyWindow(window);
     SDL_Quit();
     file.close();
+    delete[] framebuffer;
 }
