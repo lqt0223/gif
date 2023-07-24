@@ -1,6 +1,7 @@
 #include "gif.h"
 #include <fstream>
 #include <SDL2/SDL.h>
+#include <iostream>
 #include <sstream>
 #include <vector>
 
@@ -29,8 +30,8 @@ void init_code_table(uint16_t init_table_size) {
     file.read(buf, 1); \
     assert(buf[0] == num && err)
 
-u8string bytes_from_all_subblocks(istream& file) {
-    u8string bytes;
+string bytes_from_all_subblocks(istream& file) {
+    string bytes;
     // while we are not at the end of all sub blocks
     while (file.peek() != 0x00) {
         uint8_t sub_block_size;
@@ -38,10 +39,7 @@ u8string bytes_from_all_subblocks(istream& file) {
         string sub_block_data(sub_block_size, ' ');
         // get sub block data
         file.read(&sub_block_data[0], sub_block_size);
-        for (uint8_t c: sub_block_data) {
-            bytes.push_back(c);
-        }
-        // bytes.append(sub_block_data);
+        bytes.append(sub_block_data);
     }
     file.seekg(1, ios::cur); // skip end of block
     return bytes;
@@ -69,7 +67,7 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, char* framebuffer) 
     uint8_t code_size;
     u8string indexes, prev_indexes, new_indexes;
 
-    u8string bytes = bytes_from_all_subblocks(file); // packed bytes from all sub blocks
+    string bytes = bytes_from_all_subblocks(file); // packed bytes from all sub blocks
 
     auto get_next_code = [&]() {
         // the bit position - amount to shift left
@@ -83,7 +81,7 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, char* framebuffer) 
 
         uint32_t code = 0;
         for (uint8_t j = 0; j <= end_loop; j++) {
-            code |= (bytes[start_index + j] << (8 * j));
+            code |= ((unsigned char)bytes[start_index + j] << (8 * j));
         }
         // right shift to remove low bits
         code >>= start_shift;
@@ -177,6 +175,12 @@ void parse_loop_extension(ifstream& file) {
     read_assert_str_equal(file, "\x03\x01\x00\x00\x00", "netscape looping application extension content error");
 }
 
+void parse_comment_extension(ifstream& file) {
+    read_assert_str_equal(file, "\x21\xfe", "comment extension header error");
+    string bytes = bytes_from_all_subblocks(file); // packed bytes from all sub blocks
+    cout<< "Comment block at offset " << file.tellg() << " with content: " << bytes <<endl;
+}
+
 int main(int argc, char** argv) {
     assert(argc >= 2 && "no input file");
     char* filename = argv[1];
@@ -193,14 +197,26 @@ int main(int argc, char** argv) {
     string gct = parse_lsd(file, lsd);
     buf_size = lsd.w*lsd.h*4;
     framebuffer = new char[buf_size];
-    // Netscape Looping Application Extension todo this block is optional
-    parse_loop_extension(file);
 
+    // while not reaching end of gif file
     while (file.peek() != 0x3b) {
-        char* frame = new char[buf_size];
-        dec_ctx_t ctx = { lsd.packed.cr, gct, buf_size };
-        decode_frame(file, ctx, frame);
-        frames.push_back(frame);
+        // read block type
+        file.read(buf, 2);
+        file.seekg(-2, ios::cur);
+        // case1: graphic control extension following image data
+        if (!memcmp(buf, "\x21\xf9", 2)) {
+            char* frame = new char[buf_size];
+            dec_ctx_t ctx = { lsd.packed.cr, gct, buf_size };
+            decode_frame(file, ctx, frame);
+            frames.push_back(frame);
+        // case2: application extension (todo more)
+        } else if (!memcmp(buf, "\x21\xff", 2)) {
+            // Netscape Looping Application Extension todo this block is optional
+            parse_loop_extension(file);
+        // case3: comment extension
+        } else if (!memcmp(buf, "\x21\xfe", 2)) {
+            parse_comment_extension(file);
+        }
     }
 
     // draw decoded framebuffer with sdl
