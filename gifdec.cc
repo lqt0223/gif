@@ -46,7 +46,11 @@ string bytes_from_all_subblocks(istream& file) {
 }
 
 // write as argb for sdl rendering
-void write_to_fb(char*& fb_ptr, const char8_t* indexes, size_t n, const char* gct) {
+void write_to_fb(char*& fb_ptr, const char8_t* indexes, size_t n, const char* gct, const image_desc_t& image_desc) {
+    uint16_t l = image_desc.l;
+    uint16_t t = image_desc.t;
+    uint16_t w = image_desc.w;
+    uint16_t h = image_desc.h;
     for (size_t i = 0; i < n; i++) {
         *fb_ptr = 0;
         fb_ptr += 1;
@@ -55,7 +59,7 @@ void write_to_fb(char*& fb_ptr, const char8_t* indexes, size_t n, const char* gc
     }
 }
 
-void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, char* framebuffer) {
+void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, char* framebuffer, const image_desc_t& image_desc) {
     char* fb_ptr = framebuffer;
 
     uint8_t min_code_size = ctx.cr + 1;
@@ -77,10 +81,8 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, char* framebuffer) 
         uint32_t start_index = n_bit / 8;
         uint32_t end_index = (n_bit + code_size) / 8;
 
-        uint32_t end_loop = end_index - start_index;
-
         uint32_t code = 0;
-        for (uint8_t j = 0; j <= end_loop; j++) {
+        for (uint8_t j = 0; j <= end_index - start_index; j++) {
             code |= ((unsigned char)bytes[start_index + j] << (8 * j));
         }
         // right shift to remove low bits
@@ -106,7 +108,7 @@ clear:
 
     indexes = code_table[code];
     const char* gct_data = ctx.gct.data();
-    write_to_fb(fb_ptr, indexes.data(), indexes.size(), gct_data);
+    write_to_fb(fb_ptr, indexes.data(), indexes.size(), gct_data, image_desc);
     prev_code = code;
 
     while (1) {
@@ -121,13 +123,13 @@ clear:
         // lzw decoding
         if (code_table.contains(code)) {
             indexes = code_table[code];
-            write_to_fb(fb_ptr, indexes.data(), indexes.size(), gct_data);
+            write_to_fb(fb_ptr, indexes.data(), indexes.size(), gct_data, image_desc);
             code_table[code_table.size()] = code_table[prev_code] + u8string(1, indexes[0]);
             prev_code = code;
         } else {
             prev_indexes = code_table[prev_code];
             new_indexes = prev_indexes + u8string(1, prev_indexes[0]);
-            write_to_fb(fb_ptr, new_indexes.data(), new_indexes.size(), gct_data);
+            write_to_fb(fb_ptr, new_indexes.data(), new_indexes.size(), gct_data, image_desc);
             code_table[code_table.size()] = new_indexes;
             prev_code = code;
         }
@@ -153,7 +155,7 @@ void decode_frame(ifstream& file, const dec_ctx_t& ctx, char* framebuffer) {
     uint8_t min_code_size = ctx.cr + 1;
     read_assert_num_equal(file, min_code_size, "lzw min-code-size error");
 
-    lzw_unpack_decode(file, ctx, framebuffer);
+    lzw_unpack_decode(file, ctx, framebuffer, image_desc);
 }
 
 string parse_lsd(ifstream& file, const lsd_t& lsd) {
@@ -196,7 +198,7 @@ int main(int argc, char** argv) {
     lsd_t lsd;
     string gct = parse_lsd(file, lsd);
     buf_size = lsd.w*lsd.h*4;
-    framebuffer = new char[buf_size];
+    framebuffer = new char[buf_size]; // the buffer for sdl streamed rendering, as well as last frame
 
     // while not reaching end of gif file
     while (file.peek() != 0x3b) {
@@ -207,7 +209,8 @@ int main(int argc, char** argv) {
         if (!memcmp(buf, "\x21\xf9", 2)) {
             char* frame = new char[buf_size];
             dec_ctx_t ctx = { lsd.packed.cr, gct, buf_size };
-            decode_frame(file, ctx, frame);
+            decode_frame(file, ctx, framebuffer);
+            memcpy(frame, framebuffer, buf_size);
             frames.push_back(frame);
         // case2: application extension (todo more)
         } else if (!memcmp(buf, "\x21\xff", 2)) {
@@ -236,7 +239,7 @@ int main(int argc, char** argv) {
     while (1) {
         current = SDL_GetTicks();
         ts = current - start;
-        num_of_frame = (ts / 16) % total_frames;
+        num_of_frame = (ts / 160) % total_frames;
         SDL_LockTexture(tex, NULL, (void**)&framebuffer, &pitch);
         memcpy(framebuffer, frames[num_of_frame], buf_size);
         SDL_UnlockTexture(tex);
