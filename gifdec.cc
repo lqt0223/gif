@@ -13,6 +13,8 @@ typedef struct {
     uint8_t cr;
     const string& gct;
     size_t buf_size;
+    uint16_t w;
+    uint16_t h;
 } dec_ctx_t;
 
 void init_code_table(uint16_t init_table_size) {
@@ -46,19 +48,70 @@ string bytes_from_all_subblocks(istream& file) {
 }
 
 // write as argb for sdl rendering
-void write_to_fb(char*& fb_ptr, const char8_t* indexes, size_t n, const char* gct) {
-    for (size_t i = 0; i < n; i++) {
-        *fb_ptr = 0;
-        fb_ptr += 1;
-        memcpy(fb_ptr, gct + (indexes[i] * 3), 3);
-        fb_ptr += 3;
+typedef struct {
+    uint16_t l;
+    uint16_t t;
+    uint16_t w;
+    uint16_t h;
+} rect_t;
+
+class FrameBufferARGB {
+    uint16_t w;
+    uint16_t h;
+
+    rect_t rect; // the sub rect for writing
+    size_t i; // index within the sub rect
+
+public:
+    char* buffer_head;
+    FrameBufferARGB(uint16_t width, uint16_t height): w(width), h(height), i(0) {
+        // init rect should be the full buffer
+        this->buffer_head = new char[this->w * this->h * 4];
+        this->rect = { 0, 0, this->w, this->h };
+    };
+    ~FrameBufferARGB() {
+        delete[] this->buffer_head;
+    };
+    void init_rect(rect_t rect) {
+        this->i = 0;
+        this->rect = rect;
+    }
+    char* ptr() {
+        uint16_t x = this->i % this->rect.w;
+        uint16_t y = this->i / this->rect.w;
+        return this->buffer_head + (this->w * (this->rect.t + y) + this->rect.l + x) * 4;
+    }
+    // write at buffer current pos
+    void write(const char* src, size_t size, size_t offset) {
+        char* ptr = this->ptr() + offset;
+        memcpy(ptr, src, size);
+    }
+    void skip() {
+        this->i++;
+    }
+    // write at buffer current pos
+    void write_char(char chr, size_t size, size_t offset) {
+        char* ptr = this->ptr() + offset;
+        memset(ptr, chr, size);
+    }
+    void write_rgb(const char* src) {
+        this->write_char(0, 1, 0);
+        this->write(src, 3, 1);
+        this->i++;
+    };
+};
+
+void write_colors_to_fb(FrameBufferARGB& framebuffer, u8string& indexes, const gce_t& gce, const char* gct_data) {
+    for (auto index: indexes) {
+        if (index == gce.tran_index) {
+            framebuffer.skip();
+        } else {
+            framebuffer.write_rgb(gct_data + index * 3);
+        }
     }
 }
 
-void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, char* framebuffer, const image_desc_t& image_desc) {
-    char* sub_framebuffer = new char[image_desc.w * image_desc.h * 4];
-    char* sub_framebuffer_head = sub_framebuffer;
-
+void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebuffer, const image_desc_t& image_desc, const gce_t& gce) {
     uint8_t min_code_size = ctx.cr + 1;
     uint16_t clear_code = 1 << min_code_size;
     uint16_t end_code = clear_code + 1;
@@ -105,7 +158,7 @@ clear:
 
     indexes = code_table[code];
     const char* gct_data = ctx.gct.data();
-    write_to_fb(sub_framebuffer, indexes.data(), indexes.size(), gct_data);
+    write_colors_to_fb(framebuffer, indexes, gce, gct_data);
     prev_code = code;
 
     while (1) {
@@ -120,13 +173,13 @@ clear:
         // lzw decoding
         if (code_table.contains(code)) {
             indexes = code_table[code];
-            write_to_fb(sub_framebuffer, indexes.data(), indexes.size(), gct_data);
+            write_colors_to_fb(framebuffer, indexes, gce, gct_data);
             code_table[code_table.size()] = code_table[prev_code] + u8string(1, indexes[0]);
             prev_code = code;
         } else {
             prev_indexes = code_table[prev_code];
             new_indexes = prev_indexes + u8string(1, prev_indexes[0]);
-            write_to_fb(sub_framebuffer, new_indexes.data(), new_indexes.size(), gct_data);
+            write_colors_to_fb(framebuffer, new_indexes, gce, gct_data);
             code_table[code_table.size()] = new_indexes;
             prev_code = code;
         }
@@ -136,13 +189,12 @@ clear:
     }
 
     // write sub_framebuffer to right position of framebuffer line by line
-    for (uint16_t t = 0; t < image_desc.h; t++) {
-        memcpy(framebuffer + image_desc.w * t * 4, sub_framebuffer_head + image_desc.w * t * 4, image_desc.w * 4);
-    }
-    delete[] sub_framebuffer_head;
+    // for (uint16_t t = image_desc.t; t < image_desc.h + image_desc.t; t++) {
+    //     memcpy(framebuffer + (ctx.w * t + image_desc.l) * 4, sub_framebuffer_head + image_desc.w * t * 4, image_desc.w * 4);
+    // }
 }
 
-void decode_frame(ifstream& file, const dec_ctx_t& ctx, char* framebuffer) {
+void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebuffer) {
     // graphic control extension
     read_assert_str_equal(file, "\x21\xf9\x04", "graphic control extension header error");
     gce_t gce;
@@ -154,11 +206,18 @@ void decode_frame(ifstream& file, const dec_ctx_t& ctx, char* framebuffer) {
     image_desc_t image_desc;
     file.read((char*)image_desc.raw, sizeof(image_desc.raw));
 
+    framebuffer.init_rect({ 
+        image_desc.l,
+        image_desc.t,
+        image_desc.w,
+        image_desc.h
+    });
+
     // lzw-encoded block
     uint8_t min_code_size = ctx.cr + 1;
     read_assert_num_equal(file, min_code_size, "lzw min-code-size error");
 
-    lzw_unpack_decode(file, ctx, framebuffer, image_desc);
+    lzw_unpack_decode(file, ctx, framebuffer, image_desc, gce);
 }
 
 string parse_lsd(ifstream& file, const lsd_t& lsd) {
@@ -192,7 +251,6 @@ int main(int argc, char** argv) {
     ifstream file(filename, ios::binary);
     assert(file.is_open() && "open file error");
     size_t buf_size;
-    char* framebuffer;
     vector<char*> frames;
 
     // header
@@ -201,7 +259,7 @@ int main(int argc, char** argv) {
     lsd_t lsd;
     string gct = parse_lsd(file, lsd);
     buf_size = lsd.w*lsd.h*4;
-    framebuffer = new char[buf_size]; // the buffer for sdl streamed rendering, as well as last frame
+    FrameBufferARGB framebuffer(lsd.w, lsd.h);
 
     // while not reaching end of gif file
     while (file.peek() != 0x3b) {
@@ -211,9 +269,9 @@ int main(int argc, char** argv) {
         // case1: graphic control extension following image data
         if (!memcmp(buf, "\x21\xf9", 2)) {
             char* frame = new char[buf_size];
-            dec_ctx_t ctx = { lsd.packed.cr, gct, buf_size };
+            dec_ctx_t ctx = { lsd.packed.cr, gct, buf_size, lsd.w, lsd.h };
             decode_frame(file, ctx, framebuffer);
-            memcpy(frame, framebuffer, buf_size);
+            memcpy(frame, framebuffer.buffer_head, buf_size);
             frames.push_back(frame);
         // case2: application extension (todo more)
         } else if (!memcmp(buf, "\x21\xff", 2)) {
@@ -242,9 +300,9 @@ int main(int argc, char** argv) {
     while (1) {
         current = SDL_GetTicks();
         ts = current - start;
-        num_of_frame = (ts / 160) % total_frames;
-        SDL_LockTexture(tex, NULL, (void**)&framebuffer, &pitch);
-        memcpy(framebuffer, frames[num_of_frame], buf_size);
+        num_of_frame = (ts / 16) % total_frames;
+        SDL_LockTexture(tex, NULL, (void**)&framebuffer.buffer_head, &pitch);
+        memcpy(framebuffer.buffer_head, frames[num_of_frame], buf_size);
         SDL_UnlockTexture(tex);
 	SDL_Event e;
         if (SDL_PollEvent(&e)) {
@@ -257,10 +315,10 @@ int main(int argc, char** argv) {
                 mouse_x = e.motion.x * lsd.w / window_w;
                 mouse_y = e.motion.y * lsd.h / window_h;
                 s << mouse_x << ' ' << mouse_y << ' ';
-                idx = (lsd.w * mouse_y + mouse_x) * 3;
-                r = framebuffer[idx];
-                g = framebuffer[idx+1];
-                b = framebuffer[idx+2];
+                idx = (lsd.w * mouse_y + mouse_x) * 4;
+                r = framebuffer.buffer_head[idx + 1];
+                g = framebuffer.buffer_head[idx + 2];
+                b = framebuffer.buffer_head[idx + 3];
                 s << r + 0 << ' ' << g + 0 << ' ' << b + 0 << endl;
                 SDL_SetWindowTitle(window, s.str().c_str());
             }
@@ -274,5 +332,4 @@ int main(int argc, char** argv) {
     SDL_DestroyWindow(window);
     SDL_Quit();
     file.close();
-    delete[] framebuffer;
 }
