@@ -46,11 +46,7 @@ string bytes_from_all_subblocks(istream& file) {
 }
 
 // write as argb for sdl rendering
-void write_to_fb(char*& fb_ptr, const char8_t* indexes, size_t n, const char* gct, const image_desc_t& image_desc) {
-    uint16_t l = image_desc.l;
-    uint16_t t = image_desc.t;
-    uint16_t w = image_desc.w;
-    uint16_t h = image_desc.h;
+void write_to_fb(char*& fb_ptr, const char8_t* indexes, size_t n, const char* gct) {
     for (size_t i = 0; i < n; i++) {
         *fb_ptr = 0;
         fb_ptr += 1;
@@ -60,7 +56,8 @@ void write_to_fb(char*& fb_ptr, const char8_t* indexes, size_t n, const char* gc
 }
 
 void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, char* framebuffer, const image_desc_t& image_desc) {
-    char* fb_ptr = framebuffer;
+    char* sub_framebuffer = new char[image_desc.w * image_desc.h * 4];
+    char* sub_framebuffer_head = sub_framebuffer;
 
     uint8_t min_code_size = ctx.cr + 1;
     uint16_t clear_code = 1 << min_code_size;
@@ -108,7 +105,7 @@ clear:
 
     indexes = code_table[code];
     const char* gct_data = ctx.gct.data();
-    write_to_fb(fb_ptr, indexes.data(), indexes.size(), gct_data, image_desc);
+    write_to_fb(sub_framebuffer, indexes.data(), indexes.size(), gct_data);
     prev_code = code;
 
     while (1) {
@@ -116,20 +113,20 @@ clear:
 
         if (code == clear_code) {
             goto clear;
-        } else if (code == end_code || fb_ptr - framebuffer >= ctx.buf_size) {
+        } else if (code == end_code) {
             break;
         }
 
         // lzw decoding
         if (code_table.contains(code)) {
             indexes = code_table[code];
-            write_to_fb(fb_ptr, indexes.data(), indexes.size(), gct_data, image_desc);
+            write_to_fb(sub_framebuffer, indexes.data(), indexes.size(), gct_data);
             code_table[code_table.size()] = code_table[prev_code] + u8string(1, indexes[0]);
             prev_code = code;
         } else {
             prev_indexes = code_table[prev_code];
             new_indexes = prev_indexes + u8string(1, prev_indexes[0]);
-            write_to_fb(fb_ptr, new_indexes.data(), new_indexes.size(), gct_data, image_desc);
+            write_to_fb(sub_framebuffer, new_indexes.data(), new_indexes.size(), gct_data);
             code_table[code_table.size()] = new_indexes;
             prev_code = code;
         }
@@ -137,6 +134,12 @@ clear:
             code_size++;
         }
     }
+
+    // write sub_framebuffer to right position of framebuffer line by line
+    for (uint16_t t = 0; t < image_desc.h; t++) {
+        memcpy(framebuffer + image_desc.w * t * 4, sub_framebuffer_head + image_desc.w * t * 4, image_desc.w * 4);
+    }
+    delete[] sub_framebuffer_head;
 }
 
 void decode_frame(ifstream& file, const dec_ctx_t& ctx, char* framebuffer) {
