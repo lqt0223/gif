@@ -2,6 +2,7 @@
 #include <fstream>
 #include <SDL2/SDL.h>
 #include <sstream>
+#include <vector>
 
 using namespace std;
 
@@ -10,7 +11,6 @@ map<uint16_t, u8string> code_table;
 typedef struct {
     uint8_t cr;
     const string& gct;
-    char* framebuffer; // rgb packed
     size_t buf_size;
 } dec_ctx_t;
 
@@ -57,8 +57,8 @@ void write_to_fb(char*& fb_ptr, const char8_t* indexes, size_t n, const char* gc
     }
 }
 
-void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
-    char* fb_ptr = ctx.framebuffer;
+void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, char* framebuffer) {
+    char* fb_ptr = framebuffer;
 
     uint8_t min_code_size = ctx.cr + 1;
     uint16_t clear_code = 1 << min_code_size;
@@ -116,7 +116,7 @@ clear:
 
         if (code == clear_code) {
             goto clear;
-        } else if (code == end_code || fb_ptr - ctx.framebuffer >= ctx.buf_size) {
+        } else if (code == end_code || fb_ptr - framebuffer >= ctx.buf_size) {
             break;
         }
 
@@ -139,7 +139,7 @@ clear:
     }
 }
 
-void decode_frame(ifstream& file, const dec_ctx_t& ctx) {
+void decode_frame(ifstream& file, const dec_ctx_t& ctx, char* framebuffer) {
     // graphic control extension
     read_assert_str_equal(file, "\x21\xf9\x04", "graphic control extension header error");
     gce_t gce;
@@ -155,7 +155,7 @@ void decode_frame(ifstream& file, const dec_ctx_t& ctx) {
     uint8_t min_code_size = ctx.cr + 1;
     read_assert_num_equal(file, min_code_size, "lzw min-code-size error");
 
-    lzw_unpack_decode(file, ctx);
+    lzw_unpack_decode(file, ctx, framebuffer);
 }
 
 int main(int argc, char** argv) {
@@ -183,8 +183,8 @@ int main(int argc, char** argv) {
     read_assert_str_equal(file, "\x03\x01\x00\x00\x00", "netscape looping application extension content error");
 
     // while (file.peek() != 0x3b) {
-    dec_ctx_t ctx = { lsd.packed.cr, gct, frame, buf_size };
-    decode_frame(file, ctx);
+    dec_ctx_t ctx = { lsd.packed.cr, gct, buf_size };
+    decode_frame(file, ctx, frame);
 
     // draw decoded framebuffer with sdl
     // todo sdl error handling
@@ -204,11 +204,11 @@ int main(int argc, char** argv) {
         current = SDL_GetTicks();
         ts = current - start;
         toggle = (ts / 100) % 2;
-        SDL_LockTexture(tex, NULL, (void**)&ctx.framebuffer, &pitch);
+        SDL_LockTexture(tex, NULL, (void**)&framebuffer, &pitch);
         if (!toggle) {
-            memset(ctx.framebuffer, 0, buf_size);
+            memset(framebuffer, 0, buf_size);
         } else {
-            memcpy(ctx.framebuffer, frame, buf_size);
+            memcpy(framebuffer, frame, buf_size);
         }
         SDL_UnlockTexture(tex);
 	SDL_Event e;
@@ -223,9 +223,9 @@ int main(int argc, char** argv) {
                 mouse_y = e.motion.y * lsd.h / window_h;
                 s << mouse_x << ' ' << mouse_y << ' ';
                 idx = (lsd.w * mouse_y + mouse_x) * 3;
-                r = ctx.framebuffer[idx];
-                g = ctx.framebuffer[idx+1];
-                b = ctx.framebuffer[idx+2];
+                r = framebuffer[idx];
+                g = framebuffer[idx+1];
+                b = framebuffer[idx+2];
                 s << r + 0 << ' ' << g + 0 << ' ' << b + 0 << endl;
                 SDL_SetWindowTitle(window, s.str().c_str());
             }
@@ -239,6 +239,4 @@ int main(int argc, char** argv) {
     SDL_DestroyWindow(window);
     SDL_Quit();
     file.close();
-    delete[] framebuffer;
-    delete[] frame;
 }
