@@ -176,13 +176,15 @@ int main(int argc, char** argv) {
     // framebuffer
     size_t buf_size = lsd.w*lsd.h*4;
     char* framebuffer = new char[buf_size];
+    char* frame = new char[buf_size];
     // Netscape Looping Application Extension todo this block is optional
     read_assert_str_equal(file, "\x21\xff\x0b", "netscape looping application extension header error");
     read_assert_str_equal(file, "NETSCAPE2.0", "netscape looping application extension identifier error");
     read_assert_str_equal(file, "\x03\x01\x00\x00\x00", "netscape looping application extension content error");
 
     // while (file.peek() != 0x3b) {
-    dec_ctx_t ctx = { lsd.packed.cr, gct, framebuffer, buf_size };
+    dec_ctx_t ctx = { lsd.packed.cr, gct, frame, buf_size };
+    decode_frame(file, ctx);
 
     // draw decoded framebuffer with sdl
     // todo sdl error handling
@@ -191,14 +193,24 @@ int main(int argc, char** argv) {
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     SDL_Texture* tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_BGRA8888, SDL_TEXTUREACCESS_STREAMING, lsd.w,lsd.h);
     int pitch;
-    SDL_LockTexture(tex, NULL, (void**)&ctx.framebuffer, &pitch);
-    decode_frame(file, ctx);
-    SDL_UnlockTexture(tex);
     stringstream s;
 
     int window_w, window_h, mouse_x, mouse_y, idx;
     unsigned char r,g,b;
+    bool toggle = false;
+    uint32_t start, current, ts;
+    start = SDL_GetTicks();
     while (1) {
+        current = SDL_GetTicks();
+        ts = current - start;
+        toggle = (ts / 100) % 2;
+        SDL_LockTexture(tex, NULL, (void**)&ctx.framebuffer, &pitch);
+        if (!toggle) {
+            memset(ctx.framebuffer, 0, buf_size);
+        } else {
+            memcpy(ctx.framebuffer, frame, buf_size);
+        }
+        SDL_UnlockTexture(tex);
 	SDL_Event e;
         if (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) {
@@ -228,4 +240,5 @@ int main(int argc, char** argv) {
     SDL_Quit();
     file.close();
     delete[] framebuffer;
+    delete[] frame;
 }
