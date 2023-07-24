@@ -1,10 +1,9 @@
-#include <sstream>
+#include "gif.h"
 #include <string>
 #include <vector>
 #include <map>
 #include <fstream>
 #include <iostream>
-#include "gif.h"
 
 using namespace std;
 

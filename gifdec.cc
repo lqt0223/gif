@@ -1,11 +1,6 @@
-#include <cassert>
-#include <cstdlib>
-#include <cstring>
-#include <fstream>
-#include <iostream>
 #include "gif.h"
+#include <fstream>
 #include <SDL2/SDL.h>
-#include <istream>
 #include <sstream>
 
 using namespace std;
@@ -109,10 +104,6 @@ clear:
     prev_code = code;
 
     while (1) {
-        // todo debug only
-        size_t idx = (fb_ptr - ctx.framebuffer) / 3;
-        size_t l = idx % 99;
-        size_t t = idx / 99;
         code = get_next_code();
 
         if (code == clear_code) {
