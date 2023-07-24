@@ -381,8 +381,8 @@ string get_frame(uint16_t width, uint16_t height, size_t t, rgb_t (*fn)(uint16_t
 }
 
 int main() {
-    uint16_t W = 8;
-    uint16_t H = 8;
+    uint16_t W = 32;
+    uint16_t H = 32;
     auto shader = [](uint16_t left, uint16_t top, uint16_t width, uint16_t height, size_t t) -> rgb_t {
         char r = (char)((float)left / (float)width * 255.0);
         char g = (char)((float)top / (float)height * 255.0);

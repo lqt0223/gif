@@ -47,6 +47,13 @@ u8string bytes_from_all_subblocks(istream& file) {
     return bytes;
 }
 
+void write_to_fb(char*& fb_ptr, const char8_t* indexes, size_t n, const char* gct) {
+    for (size_t i = 0; i < n; i++) {
+        memcpy(fb_ptr, gct + (indexes[i] * 3), 3);
+        fb_ptr += 3;
+    }
+}
+
 void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
     char* fb_ptr = ctx.framebuffer;
 
@@ -57,7 +64,7 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx) {
     uint32_t n_bit = 0;
     uint32_t code, prev_code;
     uint8_t code_size;
-    u8string indexes;
+    u8string indexes, prev_indexes, new_indexes;
 
     u8string bytes = bytes_from_all_subblocks(file); // packed bytes from all sub blocks
 
@@ -97,10 +104,8 @@ clear:
     code = get_next_code();
 
     indexes = code_table[code];
-    for (size_t i = 0; i < indexes.size(); i++) {
-        memcpy(fb_ptr, &ctx.gct[indexes[i]*3], 3);
-        fb_ptr += 3;
-    }
+    const char* gct_data = ctx.gct.data();
+    write_to_fb(fb_ptr, indexes.data(), indexes.size(), gct_data);
     prev_code = code;
 
     while (1) {
@@ -114,20 +119,14 @@ clear:
 
         // lzw decoding
         if (code_table.contains(code)) {
-            u8string indexes = code_table[code];
-            for (size_t i = 0; i < indexes.size(); i++) {
-                memcpy(fb_ptr, &ctx.gct[indexes[i]*3], 3);
-                fb_ptr += 3;
-            }
+            indexes = code_table[code];
+            write_to_fb(fb_ptr, indexes.data(), indexes.size(), gct_data);
             code_table[code_table.size()] = code_table[prev_code] + u8string(1, indexes[0]);
             prev_code = code;
         } else {
-            u8string prev_indexes = code_table[prev_code];
-            u8string new_indexes = prev_indexes + u8string(1, prev_indexes[0]);
-            for (size_t i = 0; i < new_indexes.size(); i++) {
-                memcpy(fb_ptr, &ctx.gct[new_indexes[i]*3], 3);
-                fb_ptr += 3;
-            }
+            prev_indexes = code_table[prev_code];
+            new_indexes = prev_indexes + u8string(1, prev_indexes[0]);
+            write_to_fb(fb_ptr, new_indexes.data(), new_indexes.size(), gct_data);
             code_table[code_table.size()] = new_indexes;
             prev_code = code;
         }
@@ -135,10 +134,6 @@ clear:
             code_size++;
         }
     }
-    // for (size_t i = 0; i < ctx.framebuffer.size(); i++) {
-    //     printf("%03d ",(unsigned char)ctx.framebuffer[i]);
-    //     if (i % 30 == 29) printf("\n");
-    // }
 }
 
 void decode_frame(ifstream& file, const dec_ctx_t& ctx) {
