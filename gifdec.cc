@@ -47,8 +47,11 @@ u8string bytes_from_all_subblocks(istream& file) {
     return bytes;
 }
 
+// write as argb for sdl rendering
 void write_to_fb(char*& fb_ptr, const char8_t* indexes, size_t n, const char* gct) {
     for (size_t i = 0; i < n; i++) {
+        *fb_ptr = 0;
+        fb_ptr += 1;
         memcpy(fb_ptr, gct + (indexes[i] * 3), 3);
         fb_ptr += 3;
     }
@@ -171,7 +174,7 @@ int main(int argc, char** argv) {
     file.read(&gct[0], gct_real_size);
 
     // framebuffer
-    size_t buf_size = lsd.w*lsd.h*3;
+    size_t buf_size = lsd.w*lsd.h*4;
     char* framebuffer = new char[buf_size];
     // Netscape Looping Application Extension todo this block is optional
     read_assert_str_equal(file, "\x21\xff\x0b", "netscape looping application extension header error");
@@ -180,17 +183,17 @@ int main(int argc, char** argv) {
 
     // while (file.peek() != 0x3b) {
     dec_ctx_t ctx = { lsd.packed.cr, gct, framebuffer, buf_size };
-    decode_frame(file, ctx);
 
-    file.close();
     // draw decoded framebuffer with sdl
     // todo sdl error handling
     SDL_Init(SDL_INIT_EVERYTHING);
     SDL_Window* window = SDL_CreateWindow("gif decoder", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, lsd.w, lsd.h, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    SDL_Surface* surf = SDL_CreateRGBSurfaceFrom(ctx.framebuffer, lsd.w, lsd.h, 3 * 8, lsd.w * 3, 0x0000FF, 0x00FF00, 0xFF0000, 0);
-    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
-    SDL_FreeSurface(surf);
+    SDL_Texture* tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_BGRA8888, SDL_TEXTUREACCESS_STREAMING, lsd.w,lsd.h);
+    int pitch;
+    SDL_LockTexture(tex, NULL, (void**)&ctx.framebuffer, &pitch);
+    decode_frame(file, ctx);
+    SDL_UnlockTexture(tex);
     stringstream s;
 
     int window_w, window_h, mouse_x, mouse_y, idx;
@@ -223,5 +226,6 @@ int main(int argc, char** argv) {
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
+    file.close();
     delete[] framebuffer;
 }
