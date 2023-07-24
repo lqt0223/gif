@@ -158,29 +158,43 @@ void decode_frame(ifstream& file, const dec_ctx_t& ctx, char* framebuffer) {
     lzw_unpack_decode(file, ctx, framebuffer);
 }
 
-int main(int argc, char** argv) {
-    assert(argc >= 2 && "no input file");
-    char* filename = argv[1];
-    ifstream file(filename, ios::binary);
-    assert(file.is_open() && "open file error");
-
-    read_assert_str_equal(file, "GIF89a", "not gif89 file");
-    // logical screen descriptor
-    lsd_t lsd;
+string parse_lsd(ifstream& file, const lsd_t& lsd) {
     file.read((char*)lsd.raw, sizeof(lsd.raw));
     // global color table
     uint16_t gct_real_size = (1 << (lsd.packed.gct_sz + 1)) * 3;
     string gct(gct_real_size, ' ');
     file.read(&gct[0], gct_real_size);
+    return gct;
+}
 
-    // framebuffer
-    size_t buf_size = lsd.w*lsd.h*4;
-    char* framebuffer = new char[buf_size];
-    vector<char*> frames;
-    // Netscape Looping Application Extension todo this block is optional
+void parse_header(ifstream& file) {
+    read_assert_str_equal(file, "GIF89a", "not gif89 file");
+}
+
+void parse_loop_extension(ifstream& file) {
     read_assert_str_equal(file, "\x21\xff\x0b", "netscape looping application extension header error");
     read_assert_str_equal(file, "NETSCAPE2.0", "netscape looping application extension identifier error");
     read_assert_str_equal(file, "\x03\x01\x00\x00\x00", "netscape looping application extension content error");
+}
+
+int main(int argc, char** argv) {
+    assert(argc >= 2 && "no input file");
+    char* filename = argv[1];
+    ifstream file(filename, ios::binary);
+    assert(file.is_open() && "open file error");
+    size_t buf_size;
+    char* framebuffer;
+    vector<char*> frames;
+
+    // header
+    parse_header(file);
+    // logical screen descriptor
+    lsd_t lsd;
+    string gct = parse_lsd(file, lsd);
+    buf_size = lsd.w*lsd.h*4;
+    framebuffer = new char[buf_size];
+    // Netscape Looping Application Extension todo this block is optional
+    parse_loop_extension(file);
 
     while (file.peek() != 0x3b) {
         char* frame = new char[buf_size];
