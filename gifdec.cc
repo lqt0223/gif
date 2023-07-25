@@ -137,8 +137,9 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, const dec_local_ctx
     u8string indexes, prev_indexes, new_indexes;
 
     string bytes = bytes_from_all_subblocks(file); // packed bytes from all sub blocks
-
+#ifdef DEBUG
     size_t n_code = 0;
+#endif
 
     auto get_next_code = [&]() {
         // the bit position - amount to shift left
@@ -158,10 +159,12 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, const dec_local_ctx
         uint32_t mask = (1 << (code_size)) - 1;
         code &= mask;
         n_bit += code_size;
+#ifdef DEBUG
         if (n_code < 20) {
             cerr<<"lzw_code debug: " << n_code << ", " << code << endl;
         }
         n_code++;
+#endif
         return code;
     };
 
