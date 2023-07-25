@@ -17,6 +17,7 @@ typedef struct {
 } dec_stat_t;
 dec_stat_t dec_stat = { 0 };
 
+// decoding global context
 typedef struct {
     uint8_t cr;
     const string& gct;
@@ -24,6 +25,13 @@ typedef struct {
     uint16_t w;
     uint16_t h;
 } dec_ctx_t;
+
+// decoding local context
+typedef struct {
+    const image_desc_t& image_desc;
+    const gce_t& gce;
+    const string& lct;
+} dec_local_ctx_t;
 
 void init_code_table(uint16_t init_table_size) {
     code_table.clear();
@@ -116,7 +124,9 @@ void write_colors_to_fb(FrameBufferARGB& framebuffer, u8string& indexes, const g
     }
 }
 
-void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebuffer, const image_desc_t& image_desc, const gce_t& gce) {
+void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, const dec_local_ctx_t local_ctx, FrameBufferARGB& framebuffer) {
+    auto image_desc = local_ctx.image_desc;
+    auto gce = local_ctx.gce;
     uint8_t min_code_size = ctx.cr + 1;
     uint16_t clear_code = 1 << min_code_size;
     uint16_t end_code = clear_code + 1;
@@ -224,7 +234,10 @@ void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebu
     uint8_t min_code_size = ctx.cr + 1;
     read_assert_num_equal(file, min_code_size, "lzw min-code-size error");
 
-    lzw_unpack_decode(file, ctx, framebuffer, image_desc, gce);
+    string lct;
+    dec_local_ctx_t local_ctx = { image_desc, gce, lct };
+
+    lzw_unpack_decode(file, ctx, local_ctx, framebuffer);
 }
 
 string parse_lsd(ifstream& file, const lsd_t& lsd) {
