@@ -128,9 +128,11 @@ void write_colors_to_fb(FrameBufferARGB& framebuffer, u8string& indexes, const g
 }
 
 void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, const dec_local_ctx_t local_ctx, FrameBufferARGB& framebuffer) {
+    uint8_t min_code_size;
+    file.get((char&)min_code_size);
+
     auto image_desc = local_ctx.image_desc;
     auto gce = local_ctx.gce;
-    uint8_t min_code_size = ctx.lsd.packed.gct_sz + 1;
     uint16_t clear_code = 1 << min_code_size;
     uint16_t end_code = clear_code + 1;
     uint16_t table_size = 1 << min_code_size;
@@ -242,11 +244,7 @@ void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebu
     }
 
     // lzw-encoded block
-    uint8_t min_code_size = ctx.lsd.packed.gct_sz + 1;
-    read_assert_num_equal(file, min_code_size, "lzw min-code-size error");
-
     dec_local_ctx_t local_ctx = { image_desc, gce, lct };
-
     lzw_unpack_decode(file, ctx, local_ctx, framebuffer);
 }
 
