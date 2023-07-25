@@ -7,8 +7,16 @@
 
 using namespace std;
 
+// global variables
 char buf[256];
 map<uint16_t, u8string> code_table;
+
+typedef struct {
+    size_t num_of_frames;
+    u8string lzw_codes;
+} dec_stat_t;
+dec_stat_t dec_stat = { 0 };
+
 typedef struct {
     uint8_t cr;
     const string& gct;
@@ -69,9 +77,6 @@ public:
         this->buffer_head = new char[this->w * this->h * 4];
         this->rect = { 0, 0, this->w, this->h };
     };
-    ~FrameBufferARGB() {
-        delete[] this->buffer_head;
-    };
     void init_rect(rect_t rect) {
         this->i = 0;
         this->rect = rect;
@@ -123,6 +128,8 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& fr
 
     string bytes = bytes_from_all_subblocks(file); // packed bytes from all sub blocks
 
+    size_t n_code = 0;
+
     auto get_next_code = [&]() {
         // the bit position - amount to shift left
         uint32_t start_shift = n_bit % 8;
@@ -141,12 +148,17 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& fr
         uint32_t mask = (1 << (code_size)) - 1;
         code &= mask;
         n_bit += code_size;
+        if (n_code < 20) {
+            cerr<<"lzw_code debug: " << n_code << ", " << code << endl;
+        }
+        n_code++;
         return code;
     };
 
     code_size = min_code_size + 1;
     // first code is clear_code - skip
-    n_bit += code_size;
+    code = get_next_code();
+    assert(code == clear_code && "lzw decode error: first code not clear_code");
 clear:
     init_code_table(table_size);
     code_table[clear_code] = u8string(1, clear_code);
@@ -184,14 +196,9 @@ clear:
             prev_code = code;
         }
         if (code_table.size() == (1 << code_size)) {
-            code_size++;
+            code_size < 12 && code_size++; // some encoder will not emit clear code (and will not grow code size further)
         }
     }
-
-    // write sub_framebuffer to right position of framebuffer line by line
-    // for (uint16_t t = image_desc.t; t < image_desc.h + image_desc.t; t++) {
-    //     memcpy(framebuffer + (ctx.w * t + image_desc.l) * 4, sub_framebuffer_head + image_desc.w * t * 4, image_desc.w * 4);
-    // }
 }
 
 void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebuffer) {
@@ -242,7 +249,7 @@ void parse_loop_extension(ifstream& file) {
 void parse_comment_extension(ifstream& file) {
     read_assert_str_equal(file, "\x21\xfe", "comment extension header error");
     string bytes = bytes_from_all_subblocks(file); // packed bytes from all sub blocks
-    cout<< "Comment block at offset " << file.tellg() << " with content: " << bytes <<endl;
+    cerr << "Comment block at offset " << file.tellg() << " with content: " << bytes <<endl;
 }
 
 int main(int argc, char** argv) {
@@ -273,6 +280,7 @@ int main(int argc, char** argv) {
             decode_frame(file, ctx, framebuffer);
             memcpy(frame, framebuffer.buffer_head, buf_size);
             frames.push_back(frame);
+            dec_stat.num_of_frames++;
         // case2: application extension (todo more)
         } else if (!memcmp(buf, "\x21\xff", 2)) {
             // Netscape Looping Application Extension todo this block is optional
@@ -282,6 +290,10 @@ int main(int argc, char** argv) {
             parse_comment_extension(file);
         }
     }
+
+    // logging
+    cerr  << "num of frames: " << dec_stat.num_of_frames << endl;
+    cerr  << "dimension: " << lsd.w << "x" << lsd.h << endl;
 
     // draw decoded framebuffer with sdl
     // todo sdl error handling
