@@ -211,13 +211,7 @@ clear:
     }
 }
 
-void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebuffer) {
-    // graphic control extension
-    read_assert_str_equal(file, "\x21\xf9\x04", "graphic control extension header error");
-    gce_t gce;
-    file.read((char*)gce.raw, sizeof(gce.raw));
-    read_assert_str_equal(file, "\x00", "graphic control extension block terminal error");
-
+void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebuffer, const gce_t& gce) {
     // image descriptor
     read_assert_str_equal(file, "\x2c", "image descriptor header error");
     image_desc_t image_desc;
@@ -259,16 +253,27 @@ void parse_header(ifstream& file) {
     read_assert_str_equal(file, "GIF89a", "not gif89 file");
 }
 
-void parse_loop_extension(ifstream& file) {
+void parse_application_extension(ifstream& file) {
+    // NETSCAPE or other
     read_assert_str_equal(file, "\x21\xff\x0b", "netscape looping application extension header error");
-    read_assert_str_equal(file, "NETSCAPE2.0", "netscape looping application extension identifier error");
-    read_assert_str_equal(file, "\x03\x01\x00\x00\x00", "netscape looping application extension content error");
+    file.seekg(11, ios::cur); // skip identifier and authentication code
+    
+    uint8_t block_size;
+    file.get((char&)block_size);
+    file.seekg(block_size, ios::cur);
+    read_assert_num_equal(file, 0, "application extension block not terminated with 0");
 }
 
 void parse_comment_extension(ifstream& file) {
     read_assert_str_equal(file, "\x21\xfe", "comment extension header error");
     string bytes = bytes_from_all_subblocks(file); // packed bytes from all sub blocks
     cerr << "Comment block at offset " << file.tellg() << " with content: " << bytes <<endl;
+}
+
+void parse_gce(ifstream& file, gce_t& gce) {
+    read_assert_str_equal(file, "\x21\xf9\x04", "graphic control extension header error");
+    file.read((char*)gce.raw, sizeof(gce.raw));
+    read_assert_str_equal(file, "\x00", "graphic control extension block terminal error");
 }
 
 int main(int argc, char** argv) {
@@ -287,23 +292,27 @@ int main(int argc, char** argv) {
     buf_size = lsd.w*lsd.h*4;
     FrameBufferARGB framebuffer(lsd.w, lsd.h);
 
+    gce_t gce;
+
     // while not reaching end of gif file
     while (file.peek() != 0x3b) {
         // read block type
         file.read(buf, 2);
         file.seekg(-2, ios::cur);
-        // case1: graphic control extension following image data
+        // case0: graphic control extension
         if (!memcmp(buf, "\x21\xf9", 2)) {
+            parse_gce(file, gce);
+        // case1: image descriptor - local color table - image data
+        } else if (buf[0] == '\x2c') {
             char* frame = new char[buf_size];
             dec_ctx_t ctx = { lsd, gct, buf_size, lsd.w, lsd.h };
-            decode_frame(file, ctx, framebuffer);
+            decode_frame(file, ctx, framebuffer, gce);
             memcpy(frame, framebuffer.buffer_head, buf_size);
             frames.push_back(frame);
             dec_stat.num_of_frames++;
         // case2: application extension (todo more)
         } else if (!memcmp(buf, "\x21\xff", 2)) {
-            // Netscape Looping Application Extension todo this block is optional
-            parse_loop_extension(file);
+            parse_application_extension(file);
         // case3: comment extension
         } else if (!memcmp(buf, "\x21\xfe", 2)) {
             parse_comment_extension(file);
