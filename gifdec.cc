@@ -86,7 +86,7 @@ public:
         this->rect = { 0, 0, this->w, this->h };
     };
     void clear_buffer() {
-        memset(this->buffer_head, 0, this->w*this->h*4);
+        memset(this->buffer_head, 255, this->w*this->h*4);
     }
     void init_rect(rect_t rect) {
         this->i = 0;
@@ -106,7 +106,7 @@ public:
         this->i++;
     }
     // write at buffer current pos
-    void write_char(char chr, size_t size, size_t offset) {
+    void write_char(unsigned char chr, size_t size, size_t offset) {
         char* ptr = this->ptr() + offset;
         memset(ptr, chr, size);
     }
