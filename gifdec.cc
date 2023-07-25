@@ -179,8 +179,8 @@ clear:
     code = get_next_code();
 
     indexes = code_table[code];
-    const char* gct_data = ctx.gct.data();
-    write_colors_to_fb(framebuffer, indexes, gce, gct_data);
+    const char* color_table = local_ctx.lct.size() > 0 ? local_ctx.lct.data() : ctx.gct.data();
+    write_colors_to_fb(framebuffer, indexes, gce, color_table);
     prev_code = code;
 
     while (1) {
@@ -195,13 +195,13 @@ clear:
         // lzw decoding
         if (code_table.contains(code)) {
             indexes = code_table[code];
-            write_colors_to_fb(framebuffer, indexes, gce, gct_data);
+            write_colors_to_fb(framebuffer, indexes, gce, color_table);
             code_table[code_table.size()] = code_table[prev_code] + u8string(1, indexes[0]);
             prev_code = code;
         } else {
             prev_indexes = code_table[prev_code];
             new_indexes = prev_indexes + u8string(1, prev_indexes[0]);
-            write_colors_to_fb(framebuffer, new_indexes, gce, gct_data);
+            write_colors_to_fb(framebuffer, new_indexes, gce, color_table);
             code_table[code_table.size()] = new_indexes;
             prev_code = code;
         }
@@ -230,11 +230,17 @@ void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebu
         image_desc.h
     });
 
+    string lct;
+    if (image_desc.packed.has_lct) {
+        uint16_t lct_real_size = (1 << (image_desc.packed.lct_sz + 1)) * 3;
+        lct = string(lct_real_size, ' ');
+        file.read(&lct[0], lct_real_size);
+    }
+
     // lzw-encoded block
     uint8_t min_code_size = ctx.cr + 1;
     read_assert_num_equal(file, min_code_size, "lzw min-code-size error");
 
-    string lct;
     dec_local_ctx_t local_ctx = { image_desc, gce, lct };
 
     lzw_unpack_decode(file, ctx, local_ctx, framebuffer);
