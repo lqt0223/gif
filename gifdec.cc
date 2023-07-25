@@ -1,6 +1,6 @@
 #include "gif.h"
-#include <fstream>
 #include <SDL2/SDL.h>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -85,6 +85,9 @@ public:
         this->buffer_head = new char[this->w * this->h * 4];
         this->rect = { 0, 0, this->w, this->h };
     };
+    void clear_buffer() {
+        memset(this->buffer_head, 0, this->w*this->h*4);
+    }
     void init_rect(rect_t rect) {
         this->i = 0;
         this->rect = rect;
@@ -215,6 +218,10 @@ clear:
 }
 
 void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebuffer, const gce_t& gce) {
+    // if should dispose, clear the framebuffer
+    if (gce.packed.disposal == 2) {
+        framebuffer.clear_buffer();
+    }
     // image descriptor
     read_assert_str_equal(file, "\x2c", "image descriptor header error");
     image_desc_t image_desc;
