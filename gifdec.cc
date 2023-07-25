@@ -48,7 +48,7 @@ void init_code_table(uint16_t init_table_size) {
     file.read(buf, 1); \
     assert(buf[0] == num && err)
 
-string bytes_from_all_subblocks(istream& file) {
+string bytes_from_all_sub_blocks(istream& file) {
     string bytes;
     // while we are not at the end of all sub blocks
     while (file.peek() != 0x00) {
@@ -80,25 +80,29 @@ class FrameBufferARGB {
 
 public:
     char* buffer_head;
-    FrameBufferARGB(uint16_t width, uint16_t height): w(width), h(height), i(0) {
+    FrameBufferARGB(uint16_t width, uint16_t height):
+        w(width),
+        h(height),
+        i(0),
+        rect({  0, 0, width, height })
+    {
         // init rect should be the full buffer
         this->buffer_head = new char[this->w * this->h * 4];
-        this->rect = { 0, 0, this->w, this->h };
     };
-    void clear_buffer() {
+    void clear_buffer() const {
         memset(this->buffer_head, 255, this->w*this->h*4);
     }
-    void init_rect(rect_t rect) {
+    void init_rect(rect_t _rect) {
         this->i = 0;
-        this->rect = rect;
+        this->rect = _rect;
     }
-    char* ptr() {
+    [[nodiscard]] char* ptr() const {
         uint16_t x = this->i % this->rect.w;
         uint16_t y = this->i / this->rect.w;
         return this->buffer_head + (this->w * (this->rect.t + y) + this->rect.l + x) * 4;
     }
     // write at buffer current pos
-    void write(const char* src, size_t size, size_t offset) {
+    void write(const char* src, size_t size, size_t offset) const {
         char* ptr = this->ptr() + offset;
         memcpy(ptr, src, size);
     }
@@ -106,7 +110,7 @@ public:
         this->i++;
     }
     // write at buffer current pos
-    void write_char(unsigned char chr, size_t size, size_t offset) {
+    void write_char(unsigned char chr, size_t size, size_t offset) const {
         char* ptr = this->ptr() + offset;
         memset(ptr, chr, size);
     }
@@ -131,7 +135,6 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, const dec_local_ctx
     uint8_t min_code_size;
     file.get((char&)min_code_size);
 
-    auto image_desc = local_ctx.image_desc;
     auto gce = local_ctx.gce;
     uint16_t clear_code = 1 << min_code_size;
     uint16_t end_code = clear_code + 1;
@@ -141,7 +144,7 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, const dec_local_ctx
     uint8_t code_size;
     u8string indexes, prev_indexes, new_indexes;
 
-    string bytes = bytes_from_all_subblocks(file); // packed bytes from all sub blocks
+    string bytes = bytes_from_all_sub_blocks(file); // packed bytes from all sub blocks
 #ifdef DEBUG
     size_t n_code = 0;
 #endif
@@ -149,13 +152,12 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, const dec_local_ctx
     auto get_next_code = [&]() {
         // the bit position - amount to shift left
         uint32_t start_shift = n_bit % 8;
-        uint32_t end_shift = (n_bit + code_size) % 8;
         // the index position of bytestream
         uint32_t start_index = n_bit / 8;
         uint32_t end_index = (n_bit + code_size) / 8;
 
         uint32_t code = 0;
-        for (uint8_t j = 0; j <= end_index - start_index; j++) {
+        for (uint32_t j = 0; j <= end_index - start_index; j++) {
             code |= ((unsigned char)bytes[start_index + j] << (8 * j));
         }
         // right shift to remove low bits
@@ -187,11 +189,11 @@ clear:
     code = get_next_code();
 
     indexes = code_table[code];
-    const char* color_table = local_ctx.lct.size() > 0 ? local_ctx.lct.data() : ctx.gct.data();
+    const char* color_table = !local_ctx.lct.empty() ? local_ctx.lct.data() : ctx.gct.data();
     write_colors_to_fb(framebuffer, indexes, gce, color_table);
     prev_code = code;
 
-    while (1) {
+    while (true) {
         code = get_next_code();
 
         if (code == clear_code) {
@@ -220,7 +222,7 @@ clear:
 }
 
 void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebuffer, const gce_t& gce) {
-    // if should dispose, clear the framebuffer
+    // if disposal needed, clear the framebuffer
     if (gce.packed.disposal == 2) {
         framebuffer.clear_buffer();
     }
@@ -274,7 +276,7 @@ void parse_application_extension(ifstream& file) {
 
 void parse_comment_extension(ifstream& file) {
     read_assert_str_equal(file, "\x21\xfe", "comment extension header error");
-    string bytes = bytes_from_all_subblocks(file); // packed bytes from all sub blocks
+    string bytes = bytes_from_all_sub_blocks(file); // packed bytes from all sub blocks
     cerr << "Comment block at offset " << file.tellg() << " with content: " << bytes <<endl;
 }
 
@@ -347,13 +349,13 @@ int main(int argc, char** argv) {
     size_t total_frames = frames.size();
     int fps = 24;
     if (argc == 4) {
-        fps = atoi(argv[3]);
+        fps = (int)strtol(argv[3], nullptr, 10);
     }
-    while (1) {
+    while (true) {
         current = SDL_GetTicks();
         ts = current - start;
         num_of_frame = (ts * fps / 1000) % total_frames;
-        SDL_LockTexture(tex, NULL, (void**)&framebuffer.buffer_head, &pitch);
+        SDL_LockTexture(tex, nullptr, (void**)&framebuffer.buffer_head, &pitch);
         memcpy(framebuffer.buffer_head, frames[num_of_frame], buf_size);
         SDL_UnlockTexture(tex);
 	SDL_Event e;
@@ -376,7 +378,7 @@ int main(int argc, char** argv) {
             }
         }
         SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, tex, NULL, NULL);
+        SDL_RenderCopy(renderer, tex, nullptr, nullptr);
         SDL_RenderPresent(renderer);
     }
     SDL_DestroyTexture(tex);
