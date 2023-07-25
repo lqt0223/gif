@@ -345,10 +345,14 @@ int main(int argc, char** argv) {
     uint32_t start, current, ts, num_of_frame;
     start = SDL_GetTicks();
     size_t total_frames = frames.size();
+    int fps = 24;
+    if (argc == 4) {
+        fps = atoi(argv[3]);
+    }
     while (1) {
         current = SDL_GetTicks();
         ts = current - start;
-        num_of_frame = (ts / 16) % total_frames;
+        num_of_frame = (ts * fps / 1000) % total_frames;
         SDL_LockTexture(tex, NULL, (void**)&framebuffer.buffer_head, &pitch);
         memcpy(framebuffer.buffer_head, frames[num_of_frame], buf_size);
         SDL_UnlockTexture(tex);
