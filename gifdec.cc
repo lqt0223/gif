@@ -19,7 +19,7 @@ dec_stat_t dec_stat = { 0 };
 
 // decoding global context
 typedef struct {
-    uint8_t cr;
+    const lsd_t& lsd;
     const string& gct;
     size_t buf_size;
     uint16_t w;
@@ -127,7 +127,7 @@ void write_colors_to_fb(FrameBufferARGB& framebuffer, u8string& indexes, const g
 void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, const dec_local_ctx_t local_ctx, FrameBufferARGB& framebuffer) {
     auto image_desc = local_ctx.image_desc;
     auto gce = local_ctx.gce;
-    uint8_t min_code_size = ctx.cr + 1;
+    uint8_t min_code_size = ctx.lsd.packed.gct_sz + 1;
     uint16_t clear_code = 1 << min_code_size;
     uint16_t end_code = clear_code + 1;
     uint16_t table_size = 1 << min_code_size;
@@ -219,7 +219,7 @@ void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebu
     read_assert_str_equal(file, "\x00", "graphic control extension block terminal error");
 
     // image descriptor
-    read_assert_str_equal(file, "\x2c", "graphic control extension block terminal error");
+    read_assert_str_equal(file, "\x2c", "image descriptor header error");
     image_desc_t image_desc;
     file.read((char*)image_desc.raw, sizeof(image_desc.raw));
 
@@ -238,7 +238,7 @@ void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebu
     }
 
     // lzw-encoded block
-    uint8_t min_code_size = ctx.cr + 1;
+    uint8_t min_code_size = ctx.lsd.packed.gct_sz + 1;
     read_assert_num_equal(file, min_code_size, "lzw min-code-size error");
 
     dec_local_ctx_t local_ctx = { image_desc, gce, lct };
@@ -295,7 +295,7 @@ int main(int argc, char** argv) {
         // case1: graphic control extension following image data
         if (!memcmp(buf, "\x21\xf9", 2)) {
             char* frame = new char[buf_size];
-            dec_ctx_t ctx = { lsd.packed.cr, gct, buf_size, lsd.w, lsd.h };
+            dec_ctx_t ctx = { lsd, gct, buf_size, lsd.w, lsd.h };
             decode_frame(file, ctx, framebuffer);
             memcpy(frame, framebuffer.buffer_head, buf_size);
             frames.push_back(frame);
