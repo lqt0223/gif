@@ -377,19 +377,16 @@ int main(int argc, char** argv) {
         SDL_RenderCopy(renderer, tex, nullptr, nullptr);
         SDL_RenderPresent(renderer);
     }
-    bool at_foreground = true;
+    SDL_Event e;
+
+poll:
     while (true) {
-	SDL_Event e;
         if (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) {
-                break;
+                goto end;
             }
-            if (e.type == SDL_WINDOWEVENT) {
-                if (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
-                    at_foreground = true;
-                } else if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
-                    at_foreground = false;
-                }
+            if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                goto wait;
             } else if (e.type == SDL_MOUSEMOTION) {
                 s.seekp(0);
                 SDL_GetWindowSize(window, &window_w, &window_h);
@@ -407,7 +404,7 @@ int main(int argc, char** argv) {
         current = SDL_GetTicks();
         ts = current - start;
         bool should_play = ts % (1000 / fps) == 0;
-        if (should_play && at_foreground) {
+        if (should_play) {
             num_of_frame = (ts * fps / 1000) % total_frames;
             bool new_frame = try_decode_frame(framebuffer, file, lsd, gce, gct);
             if (new_frame) {
@@ -430,6 +427,15 @@ int main(int argc, char** argv) {
         SDL_RenderCopy(renderer, tex, nullptr, nullptr);
         SDL_RenderPresent(renderer);
     }
+wait:
+    while (true) {
+        if (SDL_WaitEvent(&e)) {
+            if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                goto poll;
+            }
+        }
+    }
+end:
     SDL_DestroyTexture(tex);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
