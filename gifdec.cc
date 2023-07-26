@@ -13,15 +13,15 @@ map<uint16_t, u8string> code_table;
 
 typedef struct {
     size_t num_of_frames;
+    bool eof;
     u8string lzw_codes;
 } dec_stat_t;
-dec_stat_t dec_stat = { 0 };
+dec_stat_t dec_stat = { 0, false };
 
 // decoding global context
 typedef struct {
     const lsd_t& lsd;
     const string& gct;
-    size_t buf_size;
     uint16_t w;
     uint16_t h;
 } dec_ctx_t;
@@ -280,7 +280,9 @@ void parse_application_extension(ifstream& file) {
 void parse_comment_extension(ifstream& file) {
     read_assert_str_equal(file, "\x21\xfe", "comment extension header error");
     string bytes = bytes_from_all_sub_blocks(file); // packed bytes from all sub blocks
-    cerr << "Comment block at offset " << file.tellg() << " with content: " << bytes <<endl;
+    if (!dec_stat.eof) {
+        cerr << "Comment block at offset " << file.tellg() << " with content: " << bytes <<endl;
+    }
 }
 
 void parse_gce(ifstream& file, gce_t& gce) {
@@ -289,24 +291,15 @@ void parse_gce(ifstream& file, gce_t& gce) {
     read_assert_str_equal(file, "\x00", "graphic control extension block terminal error");
 }
 
-int main(int argc, char** argv) {
-    assert(argc >= 2 && "no input file");
-    char* filename = argv[1];
-    ifstream file(filename, ios::binary);
-    assert(file.is_open() && "open file error");
-    size_t buf_size;
-    vector<char*> frames;
-
+uint32_t parse_metadata(ifstream& file, lsd_t& lsd, string& gct) {
     // header
     parse_header(file);
     // logical screen descriptor
-    lsd_t lsd;
-    string gct = parse_lsd(file, lsd);
-    buf_size = lsd.w*lsd.h*4;
-    FrameBufferARGB framebuffer(lsd.w, lsd.h);
+    gct = parse_lsd(file, lsd);
+    return file.tellg();
+}
 
-    gce_t gce;
-
+bool try_decode_frame(FrameBufferARGB& framebuffer, ifstream& file, const lsd_t& lsd, gce_t& gce, string& gct) {
     // while not reaching end of gif file
     while (file.peek() != 0x3b) {
         // read block type
@@ -317,12 +310,10 @@ int main(int argc, char** argv) {
             parse_gce(file, gce);
         // case1: image descriptor - local color table - image data
         } else if (buf[0] == '\x2c') {
-            char* frame = new char[buf_size];
-            dec_ctx_t ctx = { lsd, gct, buf_size, lsd.w, lsd.h };
+            dec_ctx_t ctx = { lsd, gct, lsd.w, lsd.h };
             decode_frame(file, ctx, framebuffer, gce);
-            memcpy(frame, framebuffer.buffer_head, buf_size);
-            frames.push_back(frame);
-            dec_stat.num_of_frames++;
+            if (!dec_stat.eof) dec_stat.num_of_frames++;
+            return true;
         // case2: application extension (todo more)
         } else if (!memcmp(buf, "\x21\xff", 2)) {
             parse_application_extension(file);
@@ -331,9 +322,25 @@ int main(int argc, char** argv) {
             parse_comment_extension(file);
         }
     }
+    return false;
+}
+
+int main(int argc, char** argv) {
+    assert(argc >= 2 && "no input file");
+    char* filename = argv[1];
+    ifstream file(filename, ios::binary);
+    assert(file.is_open() && "open file error");
+    size_t buf_size;
+
+    lsd_t lsd;
+    gce_t gce;
+    string gct;
+    uint32_t file_loop_offset = parse_metadata(file, lsd, gct);
+
+    buf_size = lsd.w*lsd.h*4;
+    FrameBufferARGB framebuffer(lsd.w, lsd.h);
 
     // logging
-    cerr  << "num of frames: " << dec_stat.num_of_frames << endl;
     cerr  << "dimension: " << lsd.w << "x" << lsd.h << endl;
 
     // draw decoded framebuffer with sdl
@@ -349,7 +356,7 @@ int main(int argc, char** argv) {
     unsigned char r,g,b;
     uint32_t start, current, ts, num_of_frame;
     start = SDL_GetTicks();
-    size_t total_frames = frames.size();
+    size_t total_frames = dec_stat.num_of_frames;
     int fps = 24;
     if (argc == 4) {
         fps = (int)strtol(argv[3], nullptr, 10);
@@ -359,13 +366,18 @@ int main(int argc, char** argv) {
     //   - double freed by framebuffer destructor
     // instead, use another pointer variable
     char* fb = framebuffer.buffer_head;
-    while (true) {
-        current = SDL_GetTicks();
-        ts = current - start;
-        num_of_frame = (ts * fps / 1000) % total_frames;
+
+    // render first frame
+    bool new_frame = try_decode_frame(framebuffer, file, lsd, gce, gct);
+    if (new_frame) {
         SDL_LockTexture(tex, nullptr, (void**)&fb, &pitch);
-        memcpy(fb, frames[num_of_frame], buf_size);
+        memcpy(fb, framebuffer.buffer_head, buf_size);
         SDL_UnlockTexture(tex);
+        // SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, tex, nullptr, nullptr);
+        SDL_RenderPresent(renderer);
+    }
+    while (true) {
 	SDL_Event e;
         if (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) {
@@ -384,6 +396,28 @@ int main(int argc, char** argv) {
                 s << r + 0 << ' ' << g + 0 << ' ' << b + 0 << endl;
                 SDL_SetWindowTitle(window, s.str().c_str());
             }
+        }
+        current = SDL_GetTicks();
+        ts = current - start;
+        bool should_play = ts % (1000 / fps) == 0;
+        if (should_play) {
+            num_of_frame = (ts * fps / 1000) % total_frames;
+            bool new_frame = try_decode_frame(framebuffer, file, lsd, gce, gct);
+            if (new_frame) {
+                SDL_LockTexture(tex, nullptr, (void**)&fb, &pitch);
+                memcpy(fb, framebuffer.buffer_head, buf_size);
+                SDL_UnlockTexture(tex);
+            } else {
+                // loop
+                file.seekg(file_loop_offset, ios::beg);
+                if (!dec_stat.eof) {
+                    cerr  << "num of frames: " << dec_stat.num_of_frames << endl;
+                    dec_stat.eof = true;
+                }
+                continue;
+            }
+        } else {
+            continue;
         }
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, tex, nullptr, nullptr);
