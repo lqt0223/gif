@@ -89,6 +89,9 @@ public:
         // init rect should be the full buffer
         this->buffer_head = new char[this->w * this->h * 4];
     };
+    ~FrameBufferARGB() {
+        delete[] this->buffer_head;
+    }
     void clear_buffer() const {
         memset(this->buffer_head, 255, this->w*this->h*4);
     }
@@ -351,12 +354,17 @@ int main(int argc, char** argv) {
     if (argc == 4) {
         fps = (int)strtol(argv[3], nullptr, 10);
     }
+    // do not bind pointer framebuffer.buffer_head to lockTexture, which will be
+    //   - freed by SDL_DestroyTexture internally
+    //   - double freed by framebuffer destructor
+    // instead, use another pointer variable
+    char* fb = framebuffer.buffer_head;
     while (true) {
         current = SDL_GetTicks();
         ts = current - start;
         num_of_frame = (ts * fps / 1000) % total_frames;
-        SDL_LockTexture(tex, nullptr, (void**)&framebuffer.buffer_head, &pitch);
-        memcpy(framebuffer.buffer_head, frames[num_of_frame], buf_size);
+        SDL_LockTexture(tex, nullptr, (void**)&fb, &pitch);
+        memcpy(fb, frames[num_of_frame], buf_size);
         SDL_UnlockTexture(tex);
 	SDL_Event e;
         if (SDL_PollEvent(&e)) {
@@ -370,9 +378,9 @@ int main(int argc, char** argv) {
                 mouse_y = e.motion.y * lsd.h / window_h;
                 s << mouse_x << ' ' << mouse_y << ' ';
                 idx = (lsd.w * mouse_y + mouse_x) * 4;
-                r = framebuffer.buffer_head[idx + 1];
-                g = framebuffer.buffer_head[idx + 2];
-                b = framebuffer.buffer_head[idx + 3];
+                r = fb[idx + 1];
+                g = fb[idx + 2];
+                b = fb[idx + 3];
                 s << r + 0 << ' ' << g + 0 << ' ' << b + 0 << endl;
                 SDL_SetWindowTitle(window, s.str().c_str());
             }
