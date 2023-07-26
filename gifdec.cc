@@ -1,9 +1,13 @@
 #include "gif.h"
+#ifndef NOGUI
 #include <SDL2/SDL.h>
+#endif
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <vector>
+#include <cstring>
+#include <cassert>
 
 using namespace std;
 
@@ -325,24 +329,17 @@ bool try_decode_frame(FrameBufferARGB& framebuffer, ifstream& file, const lsd_t&
     return false;
 }
 
-int main(int argc, char** argv) {
-    assert(argc >= 2 && "no input file");
-    char* filename = argv[1];
-    ifstream file(filename, ios::binary);
-    assert(file.is_open() && "open file error");
-    size_t buf_size;
-
-    lsd_t lsd;
-    gce_t gce;
-    string gct;
-    uint32_t file_loop_offset = parse_metadata(file, lsd, gct);
-
-    buf_size = lsd.w*lsd.h*4;
-    FrameBufferARGB framebuffer(lsd.w, lsd.h);
-
-    // logging
-    cerr  << "dimension: " << lsd.w << "x" << lsd.h << endl;
-
+#ifndef NOGUI
+void setup_sdl_render_main_loop(
+    ifstream&file,
+    FrameBufferARGB& framebuffer,
+    const lsd_t& lsd,
+    gce_t& gce,
+    string& gct,
+    int fps,
+    uint32_t file_loop_offset
+) {
+    size_t buf_size = lsd.w*lsd.h*4;
     // draw decoded framebuffer with sdl
     // todo sdl error handling
     SDL_Init(SDL_INIT_EVERYTHING);
@@ -357,10 +354,6 @@ int main(int argc, char** argv) {
     uint32_t start, current, ts, num_of_frame;
     start = SDL_GetTicks();
     size_t total_frames = dec_stat.num_of_frames;
-    int fps = 24;
-    if (argc == 4) {
-        fps = (int)strtol(argv[3], nullptr, 10);
-    }
     // do not bind pointer framebuffer.buffer_head to lockTexture, which will be
     //   - freed by SDL_DestroyTexture internally
     //   - double freed by framebuffer destructor
@@ -440,5 +433,56 @@ end:
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
+}
+#endif
+
+void setup_nogui_main_loop(
+    ifstream&file,
+    FrameBufferARGB& framebuffer,
+    const lsd_t& lsd,
+    gce_t& gce,
+    string& gct,
+    uint32_t file_loop_offset
+) {
+    size_t buf_size = lsd.w*lsd.h*4;
+
+    while (try_decode_frame(framebuffer, file, lsd, gce, gct)) {}
+    if (!dec_stat.eof) {
+        cerr  << "num of frames: " << dec_stat.num_of_frames << endl;
+        dec_stat.eof = true;
+    }
+}
+
+int main(int argc, char** argv) {
+    assert(argc >= 2 && "no input file");
+    char* filename = argv[1];
+    ifstream file(filename, ios::binary);
+    assert(file.is_open() && "open file error");
+
+    int fps = 24;
+    if (argc == 4) {
+        fps = (int)strtol(argv[3], nullptr, 10);
+    }
+
+    size_t buf_size;
+
+    lsd_t lsd;
+    gce_t gce;
+    string gct;
+    uint32_t file_loop_offset = parse_metadata(file, lsd, gct);
+
+    buf_size = lsd.w*lsd.h*4;
+    FrameBufferARGB framebuffer(lsd.w, lsd.h);
+
+    // logging
+    cerr  << "dimension: " << lsd.w << "x" << lsd.h << endl;
+
+    #ifndef NOGUI
+    setup_sdl_render_main_loop(file, framebuffer, lsd, gce, gct, fps, file_loop_offset);
+    #else
+    setup_nogui_main_loop(file, framebuffer, lsd, gce, gct, file_loop_offset);
+    #endif
+
+    // common end;
     file.close();
 }
