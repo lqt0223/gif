@@ -1,48 +1,5 @@
-#include "gif.h"
-#ifndef NOGUI
-#include <SDL2/SDL.h>
-#endif
+#include "gifdec.h"
 #include <fstream>
-#include <iostream>
-#include <sstream>
-#include <vector>
-#include <cstring>
-#include <cassert>
-
-using namespace std;
-
-// global variables
-char buf[256];
-map<uint16_t, u8string> code_table;
-
-typedef struct {
-    size_t num_of_frames;
-    bool eof;
-    u8string lzw_codes;
-} dec_stat_t;
-dec_stat_t dec_stat = { 0, false };
-
-// decoding global context
-typedef struct {
-    const lsd_t& lsd;
-    const string& gct;
-    uint16_t w;
-    uint16_t h;
-} dec_ctx_t;
-
-// decoding local context
-typedef struct {
-    const image_desc_t& image_desc;
-    const gce_t& gce;
-    const string& lct;
-} dec_local_ctx_t;
-
-void init_code_table(uint16_t init_table_size) {
-    code_table.clear();
-    for (uint16_t i = 0; i < init_table_size; i++) {
-        code_table[code_table.size()] = u8string(1, i);
-    }
-}
 
 #define read_assert_str_equal(file, str, err) \
     file.read(buf, sizeof(str) - 1); \
@@ -52,97 +9,162 @@ void init_code_table(uint16_t init_table_size) {
     file.read(buf, 1); \
     assert(buf[0] == num && err)
 
-string bytes_from_all_sub_blocks(istream& file) {
+char buf[256]; // a temp buffer for file content
+
+// util methods
+unsigned char* ptr_in_sub_rect(unsigned char* base, rect_t sub_rect, uint16_t rect_width, uint8_t size, size_t i) {
+    uint16_t x = i % sub_rect.w;
+    uint16_t y = i / sub_rect.w;
+    return base + (rect_width * (sub_rect.t + y) + sub_rect.l + x) * size;
+}
+
+// public methods
+GifDecoder::GifDecoder(const char* filename, pix_fmt_t _pix_fmt):
+    file(filename, ios::binary), pix_fmt(_pix_fmt)
+{
+    assert(this->file.is_open() && "open file error");
+    this->parse_metadata();
+    uint16_t w = this->get_width();
+    uint16_t h = this->get_height();
+    this->buffer = new unsigned char[w * h * 4];
+}
+
+GifDecoder::~GifDecoder() {
+    delete[] this->buffer;
+}
+
+uint16_t GifDecoder::get_width() const {
+    return this->lsd.w;
+}
+
+uint16_t GifDecoder::get_height() const {
+    return this->lsd.h;
+}
+
+void GifDecoder::loop() {
+    this->file.seekg(this->file_loop_offset, ios::beg);
+    memset(this->buffer, 255, this->lsd.w * this->lsd.h * 4); // set to white
+    this->lct.clear(); // when looping remember to reset local color table
+}
+
+bool GifDecoder::decode_frame() {
+    // while not reaching end of gif file
+    while (this->file.peek() != 0x3b) {
+        // read block type
+        this->file.read(buf, 2);
+        this->file.seekg(-2, ios::cur);
+        // case0: graphic control extension
+        if (!memcmp(buf, "\x21\xf9", 2)) {
+            this->parse_gce();
+        // case1: application extension (todo more)
+        } else if (!memcmp(buf, "\x21\xff", 2)) {
+            this->parse_application_extension();
+        // case2: comment extension
+        } else if (!memcmp(buf, "\x21\xfe", 2)) {
+            this->parse_comment_extension();
+        // case3: image descriptor - local color table - image data
+        } else if (buf[0] == '\x2c') {
+            this->decode_frame_internal();
+            return false;
+
+            // if (!dec_stat.eof) dec_stat.num_of_frames++; // todo
+            // return true;
+        }
+    }
+    return true;
+}
+
+// private methods
+void GifDecoder::parse_metadata() {
+    // header
+    this->parse_header();
+    // logical screen descriptor and global color table
+    this->parse_lsd_and_set_gct();
+    this->file_loop_offset = this->file.tellg();
+}
+
+void GifDecoder::parse_header() {
+    read_assert_str_equal(this->file, "GIF89a", "not gif89 file");
+}
+
+void GifDecoder::parse_lsd_and_set_gct() {
+    this->file.read((char*)this->lsd.raw, sizeof(this->lsd.raw));
+    // global color table
+    uint16_t gct_real_size = (1 << (this->lsd.packed.gct_sz + 1)) * 3;
+    this->gct = string(gct_real_size, ' ');
+    file.read(&this->gct[0], gct_real_size);
+}
+
+void GifDecoder::parse_gce() {
+    read_assert_str_equal(this->file, "\x21\xf9\x04", "graphic control extension header error");
+    this->file.read((char*)this->gce.raw, sizeof(this->gce.raw));
+    read_assert_str_equal(this->file, "\x00", "graphic control extension block terminal error");
+}
+
+void GifDecoder::parse_application_extension() {
+    // NETSCAPE or other
+    read_assert_str_equal(this->file, "\x21\xff\x0b", "netscape looping application extension header error");
+    this->file.seekg(11, ios::cur); // skip identifier and authentication code
+    
+    uint8_t block_size;
+    this->file.get((char&)block_size);
+    this->file.seekg(block_size, ios::cur);
+    read_assert_num_equal(this->file, 0, "application extension block not terminated with 0");
+}
+
+void GifDecoder::parse_comment_extension() {
+    read_assert_str_equal(file, "\x21\xfe", "comment extension header error");
+    string bytes = this->bytes_from_all_sub_blocks(); // packed bytes from all sub blocks
+    // if (!dec_stat.eof) { // todo
+    //     cerr << "Comment block at offset " << file.tellg() << " with content: " << bytes <<endl;
+    // }
+}
+
+string GifDecoder::bytes_from_all_sub_blocks() {
     string bytes;
     // while we are not at the end of all sub blocks
-    while (file.peek() != 0x00) {
+    while (this->file.peek() != 0x00) {
         uint8_t sub_block_size;
-        file.get((char&)sub_block_size);
+        this->file.get((char&)sub_block_size);
         string sub_block_data(sub_block_size, ' ');
         // get sub block data
-        file.read(&sub_block_data[0], sub_block_size);
+        this->file.read(&sub_block_data[0], sub_block_size);
         bytes.append(sub_block_data);
     }
-    file.seekg(1, ios::cur); // skip end of block
+    this->file.seekg(1, ios::cur); // skip end of block
     return bytes;
 }
 
-// write as argb for sdl rendering
-typedef struct {
-    uint16_t l;
-    uint16_t t;
-    uint16_t w;
-    uint16_t h;
-} rect_t;
+void GifDecoder::decode_frame_internal() {
+    // if disposal needed, clear the framebuffer
+    if (this->gce.packed.disposal == 2) {
+        memset(this->buffer, 255, this->lsd.w * this->lsd.h * 4); // set to white
+    }
+    // image descriptor
+    read_assert_str_equal(this->file, "\x2c", "image descriptor header error");
+    this->file.read((char*)this->image_desc.raw, sizeof(this->image_desc.raw));
 
-class FrameBufferARGB {
-    uint16_t w;
-    uint16_t h;
+    if (this->image_desc.packed.has_lct) {
+        uint16_t lct_real_size = (1 << (this->image_desc.packed.lct_sz + 1)) * 3;
+        this->lct = string(lct_real_size, ' ');
+        this->file.read(&this->lct[0], lct_real_size);
+    }
 
-    rect_t rect; // the sub rect for writing
-    size_t i; // index within the sub rect
+    // lzw-encoded block
+    this->lzw_unpack_decode();
+}
 
-public:
-    char* buffer_head;
-    FrameBufferARGB(uint16_t width, uint16_t height):
-        w(width),
-        h(height),
-        i(0),
-        rect({  0, 0, width, height })
-    {
-        // init rect should be the full buffer
-        this->buffer_head = new char[this->w * this->h * 4];
-    };
-    ~FrameBufferARGB() {
-        delete[] this->buffer_head;
-    }
-    void clear_buffer() const {
-        memset(this->buffer_head, 255, this->w*this->h*4);
-    }
-    void init_rect(rect_t _rect) {
-        this->i = 0;
-        this->rect = _rect;
-    }
-    [[nodiscard]] char* ptr() const {
-        uint16_t x = this->i % this->rect.w;
-        uint16_t y = this->i / this->rect.w;
-        return this->buffer_head + (this->w * (this->rect.t + y) + this->rect.l + x) * 4;
-    }
-    // write at buffer current pos
-    void write(const char* src, size_t size, size_t offset) const {
-        char* ptr = this->ptr() + offset;
-        memcpy(ptr, src, size);
-    }
-    void skip() {
-        this->i++;
-    }
-    // write at buffer current pos
-    void write_char(unsigned char chr, size_t size, size_t offset) const {
-        char* ptr = this->ptr() + offset;
-        memset(ptr, chr, size);
-    }
-    void write_rgb(const char* src) {
-        this->write_char(0, 1, 0);
-        this->write(src, 3, 1);
-        this->i++;
-    };
-};
-
-void write_colors_to_fb(FrameBufferARGB& framebuffer, u8string& indexes, const gce_t& gce, const char* gct_data) {
-    for (auto index: indexes) {
-        if (index == gce.tran_index) {
-            framebuffer.skip();
-        } else {
-            framebuffer.write_rgb(gct_data + index * 3);
-        }
+void GifDecoder::init_code_table(uint16_t init_table_size) {
+    this->code_table.clear();
+    for (uint16_t i = 0; i < init_table_size; i++) {
+        this->code_table[this->code_table.size()] = u8string(1, i);
     }
 }
 
-void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, const dec_local_ctx_t local_ctx, FrameBufferARGB& framebuffer) {
+void GifDecoder::lzw_unpack_decode() {
     uint8_t min_code_size;
-    file.get((char&)min_code_size);
+    this->file.get((char&)min_code_size);
 
-    auto gce = local_ctx.gce;
     uint16_t clear_code = 1 << min_code_size;
     uint16_t end_code = clear_code + 1;
     uint16_t table_size = 1 << min_code_size;
@@ -151,7 +173,7 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, const dec_local_ctx
     uint8_t code_size;
     u8string indexes, prev_indexes, new_indexes;
 
-    string bytes = bytes_from_all_sub_blocks(file); // packed bytes from all sub blocks
+    string bytes = this->bytes_from_all_sub_blocks(); // packed bytes from all sub blocks
 #ifdef DEBUG
     size_t n_code = 0;
 #endif
@@ -182,6 +204,33 @@ void lzw_unpack_decode(ifstream& file, const dec_ctx_t& ctx, const dec_local_ctx
         return code;
     };
 
+    size_t i = 0; // the number of written bytes to decoded_frame
+    const char* color_table = this->lct.empty() ? this->gct.data() : this->lct.data(); // to use local or global color table
+    auto write_to_decoded_frame = [&](const u8string& _indexes) {
+        for (auto index: _indexes) {
+            rect_t rect = { this->image_desc.l, this->image_desc.t, this->image_desc.w, this->image_desc.h };
+
+            // skip on transparent index
+            if (index == this->gce.tran_index) {
+            // ARGB, write one byte for alpha and 3 bytes for rgb
+            } else if (this->pix_fmt == ARGB) {
+                unsigned char* ptr = ptr_in_sub_rect(this->buffer, rect, this->lsd.w, 4, i);
+                *ptr = 255;
+                memcpy(ptr + 1, color_table + index * 3, 3);
+            // RGBA, write 3 bytes for rgb and one byte for alpha 
+            } else if (this->pix_fmt == RGBA) {
+                unsigned char* ptr = ptr_in_sub_rect(this->buffer, rect, this->lsd.w, 4, i);
+                memcpy(ptr, color_table + index * 3, 3);
+                *(ptr + 3) = 255;
+            // RGB, write 3 bytes for rgb
+            } else if (this->pix_fmt == RGB) {
+                unsigned char* ptr = ptr_in_sub_rect(this->buffer, rect, this->lsd.w, 3, i);
+                memcpy(ptr, color_table + index * 3, 3);
+            }
+            i++;
+        }
+    };
+
     code_size = min_code_size + 1;
     // first code is clear_code - skip
     code = get_next_code();
@@ -196,13 +245,11 @@ clear:
     code = get_next_code();
 
     indexes = code_table[code];
-    const char* color_table = !local_ctx.lct.empty() ? local_ctx.lct.data() : ctx.gct.data();
-    write_colors_to_fb(framebuffer, indexes, gce, color_table);
+    write_to_decoded_frame(indexes);
     prev_code = code;
 
     while (true) {
         code = get_next_code();
-
         if (code == clear_code) {
             goto clear;
         } else if (code == end_code) {
@@ -212,13 +259,13 @@ clear:
         // lzw decoding
         if (code_table.contains(code)) {
             indexes = code_table[code];
-            write_colors_to_fb(framebuffer, indexes, gce, color_table);
+            write_to_decoded_frame(indexes);
             code_table[code_table.size()] = code_table[prev_code] + u8string(1, indexes[0]);
             prev_code = code;
         } else {
             prev_indexes = code_table[prev_code];
             new_indexes = prev_indexes + u8string(1, prev_indexes[0]);
-            write_colors_to_fb(framebuffer, new_indexes, gce, color_table);
+            write_to_decoded_frame(new_indexes);
             code_table[code_table.size()] = new_indexes;
             prev_code = code;
         }
@@ -226,263 +273,4 @@ clear:
             code_size < 12 && code_size++; // some encoder will not emit clear code (and will not grow code size further)
         }
     }
-}
-
-void decode_frame(ifstream& file, const dec_ctx_t& ctx, FrameBufferARGB& framebuffer, const gce_t& gce) {
-    // if disposal needed, clear the framebuffer
-    if (gce.packed.disposal == 2) {
-        framebuffer.clear_buffer();
-    }
-    // image descriptor
-    read_assert_str_equal(file, "\x2c", "image descriptor header error");
-    image_desc_t image_desc;
-    file.read((char*)image_desc.raw, sizeof(image_desc.raw));
-
-    framebuffer.init_rect({ 
-        image_desc.l,
-        image_desc.t,
-        image_desc.w,
-        image_desc.h
-    });
-
-    string lct;
-    if (image_desc.packed.has_lct) {
-        uint16_t lct_real_size = (1 << (image_desc.packed.lct_sz + 1)) * 3;
-        lct = string(lct_real_size, ' ');
-        file.read(&lct[0], lct_real_size);
-    }
-
-    // lzw-encoded block
-    dec_local_ctx_t local_ctx = { image_desc, gce, lct };
-    lzw_unpack_decode(file, ctx, local_ctx, framebuffer);
-}
-
-string parse_lsd(ifstream& file, const lsd_t& lsd) {
-    file.read((char*)lsd.raw, sizeof(lsd.raw));
-    // global color table
-    uint16_t gct_real_size = (1 << (lsd.packed.gct_sz + 1)) * 3;
-    string gct(gct_real_size, ' ');
-    file.read(&gct[0], gct_real_size);
-    return gct;
-}
-
-void parse_header(ifstream& file) {
-    read_assert_str_equal(file, "GIF89a", "not gif89 file");
-}
-
-void parse_application_extension(ifstream& file) {
-    // NETSCAPE or other
-    read_assert_str_equal(file, "\x21\xff\x0b", "netscape looping application extension header error");
-    file.seekg(11, ios::cur); // skip identifier and authentication code
-    
-    uint8_t block_size;
-    file.get((char&)block_size);
-    file.seekg(block_size, ios::cur);
-    read_assert_num_equal(file, 0, "application extension block not terminated with 0");
-}
-
-void parse_comment_extension(ifstream& file) {
-    read_assert_str_equal(file, "\x21\xfe", "comment extension header error");
-    string bytes = bytes_from_all_sub_blocks(file); // packed bytes from all sub blocks
-    if (!dec_stat.eof) {
-        cerr << "Comment block at offset " << file.tellg() << " with content: " << bytes <<endl;
-    }
-}
-
-void parse_gce(ifstream& file, gce_t& gce) {
-    read_assert_str_equal(file, "\x21\xf9\x04", "graphic control extension header error");
-    file.read((char*)gce.raw, sizeof(gce.raw));
-    read_assert_str_equal(file, "\x00", "graphic control extension block terminal error");
-}
-
-uint32_t parse_metadata(ifstream& file, lsd_t& lsd, string& gct) {
-    // header
-    parse_header(file);
-    // logical screen descriptor
-    gct = parse_lsd(file, lsd);
-    return file.tellg();
-}
-
-bool try_decode_frame(FrameBufferARGB& framebuffer, ifstream& file, const lsd_t& lsd, gce_t& gce, string& gct) {
-    // while not reaching end of gif file
-    while (file.peek() != 0x3b) {
-        // read block type
-        file.read(buf, 2);
-        file.seekg(-2, ios::cur);
-        // case0: graphic control extension
-        if (!memcmp(buf, "\x21\xf9", 2)) {
-            parse_gce(file, gce);
-        // case1: image descriptor - local color table - image data
-        } else if (buf[0] == '\x2c') {
-            dec_ctx_t ctx = { lsd, gct, lsd.w, lsd.h };
-            decode_frame(file, ctx, framebuffer, gce);
-            if (!dec_stat.eof) dec_stat.num_of_frames++;
-            return true;
-        // case2: application extension (todo more)
-        } else if (!memcmp(buf, "\x21\xff", 2)) {
-            parse_application_extension(file);
-        // case3: comment extension
-        } else if (!memcmp(buf, "\x21\xfe", 2)) {
-            parse_comment_extension(file);
-        }
-    }
-    return false;
-}
-
-#ifndef NOGUI
-void setup_sdl_render_main_loop(
-    ifstream&file,
-    FrameBufferARGB& framebuffer,
-    const lsd_t& lsd,
-    gce_t& gce,
-    string& gct,
-    int fps,
-    uint32_t file_loop_offset
-) {
-    size_t buf_size = lsd.w*lsd.h*4;
-    // draw decoded framebuffer with sdl
-    // todo sdl error handling
-    SDL_Init(SDL_INIT_EVERYTHING);
-    SDL_Window* window = SDL_CreateWindow("gif decoder", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, lsd.w, lsd.h, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    SDL_Texture* tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_BGRA8888, SDL_TEXTUREACCESS_STREAMING, lsd.w,lsd.h);
-    int pitch;
-    stringstream s;
-
-    int window_w, window_h, mouse_x, mouse_y, idx;
-    unsigned char r,g,b;
-    uint32_t start, current, ts, num_of_frame;
-    start = SDL_GetTicks();
-    size_t total_frames = dec_stat.num_of_frames;
-    // do not bind pointer framebuffer.buffer_head to lockTexture, which will be
-    //   - freed by SDL_DestroyTexture internally
-    //   - double freed by framebuffer destructor
-    // instead, use another pointer variable
-    char* fb = framebuffer.buffer_head;
-
-    // render first frame
-    bool new_frame = try_decode_frame(framebuffer, file, lsd, gce, gct);
-    if (new_frame) {
-        SDL_LockTexture(tex, nullptr, (void**)&fb, &pitch);
-        memcpy(fb, framebuffer.buffer_head, buf_size);
-        SDL_UnlockTexture(tex);
-        // SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, tex, nullptr, nullptr);
-        SDL_RenderPresent(renderer);
-    }
-    SDL_Event e;
-
-poll:
-    while (true) {
-        if (SDL_PollEvent(&e)) {
-            if (e.type == SDL_QUIT) {
-                goto end;
-            }
-            if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
-                goto wait;
-            } else if (e.type == SDL_MOUSEMOTION) {
-                s.seekp(0);
-                SDL_GetWindowSize(window, &window_w, &window_h);
-                mouse_x = e.motion.x * lsd.w / window_w;
-                mouse_y = e.motion.y * lsd.h / window_h;
-                s << mouse_x << ' ' << mouse_y << ' ';
-                idx = (lsd.w * mouse_y + mouse_x) * 4;
-                r = fb[idx + 1];
-                g = fb[idx + 2];
-                b = fb[idx + 3];
-                s << r + 0 << ' ' << g + 0 << ' ' << b + 0 << endl;
-                SDL_SetWindowTitle(window, s.str().c_str());
-            }
-        }
-        current = SDL_GetTicks();
-        ts = current - start;
-        bool should_play = ts % (1000 / fps) == 0;
-        if (should_play) {
-            num_of_frame = (ts * fps / 1000) % total_frames;
-            bool new_frame = try_decode_frame(framebuffer, file, lsd, gce, gct);
-            if (new_frame) {
-                SDL_LockTexture(tex, nullptr, (void**)&fb, &pitch);
-                memcpy(fb, framebuffer.buffer_head, buf_size);
-                SDL_UnlockTexture(tex);
-            } else {
-                // loop
-                file.seekg(file_loop_offset, ios::beg);
-                if (!dec_stat.eof) {
-                    cerr  << "num of frames: " << dec_stat.num_of_frames << endl;
-                    dec_stat.eof = true;
-                }
-                continue;
-            }
-        } else {
-            continue;
-        }
-        SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, tex, nullptr, nullptr);
-        SDL_RenderPresent(renderer);
-    }
-wait:
-    while (true) {
-        if (SDL_WaitEvent(&e)) {
-            if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
-                goto poll;
-            }
-        }
-    }
-end:
-    SDL_DestroyTexture(tex);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-}
-#endif
-
-void setup_nogui_main_loop(
-    ifstream&file,
-    FrameBufferARGB& framebuffer,
-    const lsd_t& lsd,
-    gce_t& gce,
-    string& gct,
-    uint32_t file_loop_offset
-) {
-    size_t buf_size = lsd.w*lsd.h*4;
-
-    while (try_decode_frame(framebuffer, file, lsd, gce, gct)) {}
-    if (!dec_stat.eof) {
-        cerr  << "num of frames: " << dec_stat.num_of_frames << endl;
-        dec_stat.eof = true;
-    }
-}
-
-int main(int argc, char** argv) {
-    assert(argc >= 2 && "no input file");
-    char* filename = argv[1];
-    ifstream file(filename, ios::binary);
-    assert(file.is_open() && "open file error");
-
-    int fps = 24;
-    if (argc == 4) {
-        fps = (int)strtol(argv[3], nullptr, 10);
-    }
-
-    size_t buf_size;
-
-    lsd_t lsd;
-    gce_t gce;
-    string gct;
-    uint32_t file_loop_offset = parse_metadata(file, lsd, gct);
-
-    buf_size = lsd.w*lsd.h*4;
-    FrameBufferARGB framebuffer(lsd.w, lsd.h);
-
-    // logging
-    cerr  << "dimension: " << lsd.w << "x" << lsd.h << endl;
-
-    #ifndef NOGUI
-    setup_sdl_render_main_loop(file, framebuffer, lsd, gce, gct, fps, file_loop_offset);
-    #else
-    setup_nogui_main_loop(file, framebuffer, lsd, gce, gct, file_loop_offset);
-    #endif
-
-    // common end;
-    file.close();
 }
