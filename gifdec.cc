@@ -77,7 +77,7 @@ void GifDecoder::parse_metadata() {
 }
 
 void GifDecoder::parse_header() {
-    read_assert_str_equal(this->file, "GIF89a", "not gif89 file");
+    read_assert_str_equal(this->file, buf, "GIF89a", "not gif89 file");
 }
 
 void GifDecoder::parse_lsd_and_set_gct() {
@@ -89,24 +89,24 @@ void GifDecoder::parse_lsd_and_set_gct() {
 }
 
 void GifDecoder::parse_gce() {
-    read_assert_str_equal(this->file, "\x21\xf9\x04", "graphic control extension header error");
+    read_assert_str_equal(this->file, buf, "\x21\xf9\x04", "graphic control extension header error");
     this->file.read((char*)this->gce.raw, sizeof(this->gce.raw));
-    read_assert_str_equal(this->file, "\x00", "graphic control extension block terminal error");
+    read_assert_str_equal(this->file, buf, "\x00", "graphic control extension block terminal error");
 }
 
 void GifDecoder::parse_application_extension() {
     // NETSCAPE or other
-    read_assert_str_equal(this->file, "\x21\xff\x0b", "netscape looping application extension header error");
+    read_assert_str_equal(this->file, buf, "\x21\xff\x0b", "netscape looping application extension header error");
     this->file.seekg(11, ios::cur); // skip identifier and authentication code
     
     uint8_t block_size;
     this->file.get((char&)block_size);
     this->file.seekg(block_size, ios::cur);
-    read_assert_num_equal(this->file, 0, "application extension block not terminated with 0");
+    read_assert_num_equal(this->file, buf, 0, "application extension block not terminated with 0");
 }
 
 void GifDecoder::parse_comment_extension() {
-    read_assert_str_equal(file, "\x21\xfe", "comment extension header error");
+    read_assert_str_equal(this->file, buf, "\x21\xfe", "comment extension header error");
     string bytes = this->bytes_from_all_sub_blocks(); // packed bytes from all sub blocks
     // if (!dec_stat.eof) { // todo
     //     cerr << "Comment block at offset " << file.tellg() << " with content: " << bytes <<endl;
@@ -134,7 +134,7 @@ void GifDecoder::decode_frame_internal() {
         memset(this->buffer, 255, this->lsd.w * this->lsd.h * 4); // set to white
     }
     // image descriptor
-    read_assert_str_equal(this->file, "\x2c", "image descriptor header error");
+    read_assert_str_equal(this->file, buf, "\x2c", "image descriptor header error");
     this->file.read((char*)this->image_desc.raw, sizeof(this->image_desc.raw));
 
     if (this->image_desc.packed.has_lct) {

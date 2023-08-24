@@ -9,7 +9,7 @@
 #include <vector>
 #include "huffman.h"
 
-char buf[1024];
+char buf[16];
 
 const uint8_t zigzag[] = {
 	0,	1,	5,	6,	14,	15,	27,	28,
@@ -144,10 +144,10 @@ void JpegDecoder::handle_sos0() {
   segment_info_t info = this->segments[segment_t::SOF0][0]; // only one sos0 segment
   auto [offset, length] = info;
   this->file.seekg(offset, ios::beg); // skip section length
-  read_assert_str_equal(this->file, "\x08", "data precision not 8");
+  read_assert_str_equal(this->file, buf, "\x08", "data precision not 8");
   this->h = read_u16_be(this->file);
   this->w = read_u16_be(this->file);
-  read_assert_str_equal(this->file, "\x03", "image component not 3");
+  read_assert_str_equal(this->file, buf, "\x03", "image component not 3");
   this->file.read((char*)&this->fc[0], 9);
 
   // printf("%d\n", this->fc[0].id);
@@ -230,7 +230,7 @@ void JpegDecoder::handle_dqts() {
 
 void JpegDecoder::get_segments() {
   // start of image
-  read_assert_str_equal(this->file, "\xff\xd8", "start of image header error");
+  read_assert_str_equal(this->file, buf, "\xff\xd8", "start of image header error");
 
   char marker[2];
   int seg_length;
@@ -303,10 +303,13 @@ void JpegDecoder::decode() {
   double* cb_buffer = new double[64];
 
   int i = 0;
-  while (i < 11) { // todo
+  while (i < 10) { // todo
     dc_y = this->decode_8x8_per_component(y_buffer, component_t::Y, dc_y);
+    print_8x8(y_buffer);
     dc_cr = this->decode_8x8_per_component(cr_buffer, component_t::Cr, dc_cr);
+    print_8x8(cr_buffer);
     dc_cb = this->decode_8x8_per_component(cb_buffer, component_t::Cb, dc_cb);
+    print_8x8(cb_buffer);
     i++;
   }
   delete[] y_buffer;
