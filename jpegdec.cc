@@ -60,6 +60,13 @@ void idct_8x8(double* freq_domain_input, double* time_domain_output) {
   }
 }
 
+void print_64(double* buffer) {
+  for (int i =0 ; i < 64; i++) {
+    printf("%d ", (int)buffer[i]);
+  }
+  printf("\n");
+}
+
 void print_8x8(double* buffer) {
   for (int u = 0; u < 8; u++) {
     for (int v = 0; v < 8; v++) {
@@ -377,9 +384,9 @@ double JpegDecoder::decode_8x8_per_component(double* dst, component_t component,
   // use the symbol corresponding to code as code_size for next read
   // symbol is also used as value category here
   char category = dc_entry.second;
-  auto a = 1 << (category - 1);
+  unsigned int a = 1 << (category - 1);
   int code = this->peek_bit_stream(category);
-  char bits = code >= a ? code : code - (2 * a - 1); // value category and coefficient
+  int bits = code >= a ? code : code - (2 * a - 1); // value category and coefficient
   double new_dc = old_dc + (double)bits; // do the dequantization
   // only one dc_coeff, add it to buffer directly
   dst[i] = new_dc * qt[i];
@@ -398,12 +405,12 @@ double JpegDecoder::decode_8x8_per_component(double* dst, component_t component,
     }
     uint8_t zero_count = rrrrssss >> 4;
     uint8_t category = rrrrssss & 0x0F;
-    auto a = 1 << (category - 1);
+    unsigned int a = 1 << (category - 1);
     // since the buffer is inited with zero, skip zero_counts
     i += zero_count;
     int code = this->peek_bit_stream(category);
     // printf("%d %d %d %d\n", rrrrssss, zero_count, category, code);
-    char ac_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
+    int ac_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
     dst[i] = (double)(ac_coeff * qt[i]);
     // buf[i] = ac_coeff;
     i++;
