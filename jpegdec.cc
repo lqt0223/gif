@@ -243,56 +243,47 @@ void JpegDecoder::decode8x8(char* buffer) {
   // luma component
   // dc
 
-  // iterate the dc_luma huffman table and find a code that's in the table, and matches the bitstream prefix
-  for (auto huffman_table_entry: this->ht_dc_luma) {
-    HuffmanCode code_info = huffman_table_entry.first;
+  // find a huffman entry in table for dc
+  auto dc_entry = this->read_bit_with_ht(this->ht_dc_luma);
+  HuffmanCode code_info = dc_entry.first;
+  int prefix = this->peek_bit_stream(code_info.length);
+  // use the symbol corresponding to code as code_size for next read
+  // symbol is also used as value category here
+  char category = dc_entry.second;
+  auto a = 1 << (category - 1);
+  int code = this->peek_bit_stream(category);
+  char dc_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
+  // only one dc_coeff, add it to buffer directly
+  buf[i] = dc_coeff * this->qt_luma[i]; // do the dequantization
+  // buf[i] = dc_coeff; // do the dequantization
+  i++;
+  this->bit_offset += category;
+
+  while (i < 64) {
+    // find a huffman entry in table for ac
+    auto ac_entry = this->read_bit_with_ht(this->ht_ac_luma);
+    HuffmanCode code_info = ac_entry.first;
     int prefix = this->peek_bit_stream(code_info.length);
-    if (prefix == code_info.code) {
-      this->bit_offset += code_info.length;
-      // use the symbol corresponding to code as code_size for next read
-      // symbol is also used as value category here
-      char category = huffman_table_entry.second;
-      auto a = 1 << (category - 1);
-      int code = this->peek_bit_stream(category);
-      char dc_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
-      // only one dc_coeff, add it to buffer directly
-      buf[i] = dc_coeff * this->qt_luma[i]; // do the dequantization
-      // buf[i] = dc_coeff; // do the dequantization
-      i++;
-      this->bit_offset += category;
+    char rrrrssss = ac_entry.second;
+    if (rrrrssss == 0) { // end of block in run-length coding
       break;
     }
-  }
-  while (i < 64) {
-    //  ac
-    for (auto huffman_table_entry: this->ht_ac_luma) {
-      HuffmanCode code_info = huffman_table_entry.first;
-      int prefix = this->peek_bit_stream(code_info.length);
-      if (prefix == code_info.code) {
-        this->bit_offset += code_info.length;
-        char rrrrssss = huffman_table_entry.second;
-        if (rrrrssss == 0) { // end of block in run-length coding
-          goto end;
-        }
-        uint8_t zero_count = rrrrssss >> 4;
-        uint8_t category = rrrrssss & 0x0F;
-        auto a = 1 << (category - 1);
-        // add zero_count zeros into ac coeffs
-        for (uint8_t k = 0; k < zero_count; k++) {
-          buf[i+k] = 0;
-        }
-        i += zero_count;
-        int code = this->peek_bit_stream(category);
-        char ac_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
-        buf[i] = ac_coeff * this->qt_luma[i];
-        // buf[i] = ac_coeff;
-        i++;
-        this->bit_offset += category;
-        break;
-      }
+    uint8_t zero_count = rrrrssss >> 4;
+    uint8_t category = rrrrssss & 0x0F;
+    auto a = 1 << (category - 1);
+    // add zero_count zeros into ac coeffs
+    for (uint8_t k = 0; k < zero_count; k++) {
+      buf[i+k] = 0;
     }
+    i += zero_count;
+    int code = this->peek_bit_stream(category);
+    char ac_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
+    buf[i] = ac_coeff * this->qt_luma[i];
+    // buf[i] = ac_coeff;
+    i++;
+    this->bit_offset += category;
   }
-end:
+
   for (int u = 0; u < 8; u++) {
     for (int v = 0; v < 8; v++) {
       int zigzag_i = u * 8 + v;
