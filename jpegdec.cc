@@ -275,9 +275,12 @@ uint32_t JpegDecoder::peek_bit_stream(uint8_t code_size) {
 
 // decode a 8x8 mcu and output to buffer
 void JpegDecoder::decode8x8(char* buffer) {
-  int* y_buffer = new int[64];
-  int* cb_buffer = new int[64];
-  int* cr_buffer = new int[64];
+  double* y_buffer = new double[64];
+  memset(y_buffer, 0, sizeof(double) * 64);
+  double* cr_buffer = new double[64];
+  memset(cr_buffer, 0, sizeof(double) * 64);
+  double* cb_buffer = new double[64];
+  memset(cb_buffer, 0, sizeof(double) * 64);
   int i = 0;
 
   // luma component
@@ -294,7 +297,7 @@ void JpegDecoder::decode8x8(char* buffer) {
   int code = this->peek_bit_stream(category);
   char dc_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
   // only one dc_coeff, add it to buffer directly
-  y_buffer[i] = dc_coeff * this->qt_luma[i]; // do the dequantization
+  y_buffer[i] = (double)(dc_coeff * this->qt_luma[i]); // do the dequantization
   // buf[i] = dc_coeff; // do the dequantization
   i++;
   this->bit_offset += category;
@@ -313,12 +316,12 @@ void JpegDecoder::decode8x8(char* buffer) {
     auto a = 1 << (category - 1);
     // add zero_count zeros into ac coeffs
     for (uint8_t k = 0; k < zero_count; k++) {
-      y_buffer[i+k] = 0;
+      y_buffer[i+k] = 0.0;
     }
     i += zero_count;
     int code = this->peek_bit_stream(category);
     char ac_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
-    y_buffer[i] = ac_coeff * this->qt_luma[i];
+    y_buffer[i] = (double)(ac_coeff * this->qt_luma[i]);
     // buf[i] = ac_coeff;
     i++;
     this->bit_offset += category;
@@ -329,7 +332,7 @@ void JpegDecoder::decode8x8(char* buffer) {
   for (int u = 0; u < 8; u++) {
     for (int v = 0; v < 8; v++) {
       int i = u*8+v;
-      printf("%d\t", y_buffer[i]);
+      printf("%.2lf\t", y_buffer[i]);
     }
     printf("\n");
   }
