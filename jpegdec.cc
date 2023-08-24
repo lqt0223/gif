@@ -71,6 +71,31 @@ void print_8x8(double* buffer) {
   printf("\n");
 }
 
+void output_rgb_8x8_to_buffer(uint8_t* dst, double* y, double* cr, double* cb, size_t x_mcu, size_t y_mcu, size_t stride) {
+  for (size_t i = 0; i < 64; i++) {
+    double _y = y[i];
+    double _cr = cr[i];
+    double _cb = cb[i];
+    
+    double r = _cb*(2-2*.114) + _y;
+    // r = _y;
+    double b = _cr*(2-2*.299) + _y;
+    // b = _y;
+    double g = (_y - .114*b - .299*r)/.587;
+    // g = _y;
+    r += 128.0; r = fmin(r, 255.0); r = fmax(r, 0.0);
+    g += 128.0; g = fmin(g, 255.0); g = fmax(g, 0.0);
+    b += 128.0; b = fmin(b, 255.0); b = fmax(b, 0.0);
+
+    size_t xx = i / 8, yy = i % 8;
+    size_t x = x_mcu * 8 + xx, y = y_mcu * 8 + yy;
+    size_t ir = (x * stride + y) * 3, ig = ir + 1, ib = ir + 2;
+    dst[ir] = (uint8_t)r;
+    dst[ig] = (uint8_t)g;
+    dst[ib] = (uint8_t)b;
+  }
+}
+
 JpegDecoder::JpegDecoder(const char* filename):
   file(filename), bit_offset(0)
 {
@@ -294,20 +319,35 @@ void JpegDecoder::decode() {
   double dc_cr = 0.0;
   double dc_cb = 0.0;
 
+  uint8_t* output = new uint8_t[this->w*this->h*3];
+
   int i = 0;
-  for (int u = 0; u < this->h / 8; u++) {
-    for (int v = 0; v < this->w / 8; v++) {
-      dc_y = this->decode_8x8_per_component(component_t::Y, dc_y);
-      dc_cr = this->decode_8x8_per_component(component_t::Cr, dc_cr);
-      dc_cb = this->decode_8x8_per_component(component_t::Cb, dc_cb);
+  for (int y_mcu = 0; y_mcu < this->h / 8; y_mcu++) {
+    for (int x_mcu = 0; x_mcu < this->w / 8; x_mcu++) {
+      dc_y = this->decode_8x8_per_component(this->buf_y, component_t::Y, dc_y);
+      // printf("mcu no. %d Y\n", i);
+      // print_8x8(this->buf_y);
+      dc_cr = this->decode_8x8_per_component(this->buf_cr, component_t::Cr, dc_cr);
+      // printf("mcu no. %d Cr\n", i);
+      // print_8x8(this->buf_cr);
+      dc_cb = this->decode_8x8_per_component(this->buf_cb, component_t::Cb, dc_cb);
+      // printf("mcu no. %d Cb\n", i);
+      // print_8x8(this->buf_cb);
+      output_rgb_8x8_to_buffer(output, this->buf_y, this->buf_cr, this->buf_cb, y_mcu, x_mcu, this->w);
       i++;
       if (false) { // todo
         goto end;
       }
     }
   }
+  // output to stderr
+  printf("P3\n%d %d\n255\n", this->w, this->h);
+  for (size_t i = 0; i < this->w*this->h*3; i++) {
+    printf("%d ", output[i]);
+  }
+  
 end:
-  printf("here\n");
+  delete[] output;
 }
 
 std::pair<huffman_code_t, char> JpegDecoder::read_bit_with_ht(huffman_table_t& ht) {
@@ -322,8 +362,8 @@ std::pair<huffman_code_t, char> JpegDecoder::read_bit_with_ht(huffman_table_t& h
   throw "code not found while reading bitstream with huffman table";
 }
 
-double JpegDecoder::decode_8x8_per_component(component_t component, double old_dc) {
-  memset(this->buf1, 0, sizeof(double) * 64);
+double JpegDecoder::decode_8x8_per_component(double* dst, component_t component, double old_dc) {
+  memset(dst, 0, sizeof(double) * 64);
   int i = 0;
   huffman_table_t* ht;
   uint8_t* qt;
@@ -342,7 +382,7 @@ double JpegDecoder::decode_8x8_per_component(component_t component, double old_d
   char bits = code >= a ? code : code - (2 * a - 1); // value category and coefficient
   double new_dc = old_dc + (double)bits; // do the dequantization
   // only one dc_coeff, add it to buffer directly
-  this->buf1[i] = new_dc * qt[i];
+  dst[i] = new_dc * qt[i];
   // buf[i] = dc_coeff; // do the dequantization
   i++;
   this->bit_offset += category;
@@ -364,14 +404,14 @@ double JpegDecoder::decode_8x8_per_component(component_t component, double old_d
     int code = this->peek_bit_stream(category);
     // printf("%d %d %d %d\n", rrrrssss, zero_count, category, code);
     char ac_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
-    this->buf1[i] = (double)(ac_coeff * qt[i]);
+    dst[i] = (double)(ac_coeff * qt[i]);
     // buf[i] = ac_coeff;
     i++;
     this->bit_offset += category;
   }
 
-  zigzag_rearrange_8x8(this->buf1, this->buf2);
-  idct_8x8(this->buf2, this->buf1);
+  zigzag_rearrange_8x8(dst, this->buf_temp);
+  idct_8x8(this->buf_temp, dst);
   // upsampling todo
   return new_dc;
 }
