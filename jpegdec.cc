@@ -65,6 +65,17 @@ void idct_8x8(double* freq_domain_input) {
   delete[] time_domain_output;
 }
 
+void print_8x8(double* buffer) {
+  for (int u = 0; u < 8; u++) {
+    for (int v = 0; v < 8; v++) {
+      int i = u*8+v;
+      printf("%d\t", (int)buffer[i]);
+    }
+    printf("\n");
+  }
+  printf("\n");
+}
+
 JpegDecoder::JpegDecoder(const char* filename):
   file(filename), bit_offset(0)
 {
@@ -187,7 +198,6 @@ void JpegDecoder::handle_huffman(int offset, int length) {
     }
   }
 
-
   delete[] symbols;
 }
 
@@ -249,6 +259,11 @@ void JpegDecoder::get_segments() {
 }
 // huffman code length is not greater than 16
 uint32_t JpegDecoder::peek_bit_stream(uint8_t code_size) {
+  // bound check
+  auto max_bit_offset = this->bitstream.size() * 8;
+  if (this->bit_offset + code_size > max_bit_offset) {
+    printf("here\n");
+  }
   // the bit position - amount to shift left
   size_t start_shift = this->bit_offset % 8;
   size_t end_shift = (this->bit_offset + code_size) % 8;
@@ -265,7 +280,6 @@ uint32_t JpegDecoder::peek_bit_stream(uint8_t code_size) {
   // mask to remove msb
   uint32_t mask = (1 << (code_size)) - 1;
   code &= mask;
-  // this->bit_offset += code_size;
   return code;
 }
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
@@ -279,71 +293,25 @@ uint32_t JpegDecoder::peek_bit_stream(uint8_t code_size) {
 ((byte) & 0x02 ? '1' : '0'), \
 ((byte) & 0x01 ? '1' : '0') 
 
-// decode a 8x8 mcu and output to buffer
-void JpegDecoder::decode8x8(char* buffer) {
+// decode 8x8 mcus and output
+void JpegDecoder::decode() {
+  double dc_y = 0.0;
+  double dc_cr = 0.0;
+  double dc_cb = 0.0;
   double* y_buffer = new double[64];
-  memset(y_buffer, 0, sizeof(double) * 64);
   double* cr_buffer = new double[64];
-  memset(cr_buffer, 0, sizeof(double) * 64);
   double* cb_buffer = new double[64];
-  memset(cb_buffer, 0, sizeof(double) * 64);
+
   int i = 0;
-
-  // luma component
-  // dc
-
-  // find a huffman entry in table for dc
-  auto dc_entry = this->read_bit_with_ht(this->ht_dc_luma);
-  HuffmanCode code_info = dc_entry.first;
-  int prefix = this->peek_bit_stream(code_info.length);
-  // use the symbol corresponding to code as code_size for next read
-  // symbol is also used as value category here
-  char category = dc_entry.second;
-  auto a = 1 << (category - 1);
-  int code = this->peek_bit_stream(category);
-  char dc_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
-  // only one dc_coeff, add it to buffer directly
-  y_buffer[i] = (double)(dc_coeff * this->qt_luma[i]); // do the dequantization
-  // buf[i] = dc_coeff; // do the dequantization
-  i++;
-  this->bit_offset += category;
-
-  while (i < 64) {
-    // find a huffman entry in table for ac
-    auto ac_entry = this->read_bit_with_ht(this->ht_ac_luma);
-    HuffmanCode code_info = ac_entry.first;
-    int prefix = this->peek_bit_stream(code_info.length);
-    char rrrrssss = ac_entry.second;
-    if (rrrrssss == 0) { // end of block in run-length coding
-      break;
-    }
-    uint8_t zero_count = rrrrssss >> 4;
-    uint8_t category = rrrrssss & 0x0F;
-    auto a = 1 << (category - 1);
-    // add zero_count zeros into ac coeffs
-    for (uint8_t k = 0; k < zero_count; k++) {
-      y_buffer[i+k] = 0.0;
-    }
-    i += zero_count;
-    int code = this->peek_bit_stream(category);
-    char ac_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
-    y_buffer[i] = (double)(ac_coeff * this->qt_luma[i]);
-    // buf[i] = ac_coeff;
+  while (i < 11) { // todo
+    dc_y = this->decode_8x8_per_component(y_buffer, component_t::Y, dc_y);
+    dc_cr = this->decode_8x8_per_component(cr_buffer, component_t::Cr, dc_cr);
+    dc_cb = this->decode_8x8_per_component(cb_buffer, component_t::Cb, dc_cb);
     i++;
-    this->bit_offset += category;
   }
-
-  zigzag_rearrange_8x8(y_buffer);
-  idct_8x8(y_buffer);
-
-  for (int u = 0; u < 8; u++) {
-    for (int v = 0; v < 8; v++) {
-      int i = u*8+v;
-      printf("%.2lf\t", y_buffer[i]);
-    }
-    printf("\n");
-  }
-  // undo zig-zag
+  delete[] y_buffer;
+  delete[] cr_buffer;
+  delete[] cb_buffer;
 }
 
 std::pair<huffman_code_t, char> JpegDecoder::read_bit_with_ht(huffman_table_t& ht) {
@@ -356,4 +324,64 @@ std::pair<huffman_code_t, char> JpegDecoder::read_bit_with_ht(huffman_table_t& h
     }
   }
   throw "code not found while reading bitstream with huffman table";
+}
+
+double JpegDecoder::decode_8x8_per_component(double* buffer, component_t component, double old_dc) {
+  memset(buffer, 0, sizeof(double) * 64);
+  int i = 0;
+  huffman_table_t ht;
+  uint8_t* qt;
+
+  qt = component == component_t::Y ? this->qt_luma : this->qt_chroma;
+
+  // dc
+  // find a huffman entry in table for dc
+  ht = component == component_t::Y ? this->ht_dc_luma : this->ht_dc_chroma;
+  auto dc_entry = this->read_bit_with_ht(ht);
+  HuffmanCode code_info = dc_entry.first;
+  int prefix = this->peek_bit_stream(code_info.length);
+  // use the symbol corresponding to code as code_size for next read
+  // symbol is also used as value category here
+  char category = dc_entry.second;
+  auto a = 1 << (category - 1);
+  int code = this->peek_bit_stream(category);
+  char bits = code >= a ? code : code - (2 * a - 1); // value category and coefficient
+  double new_dc = old_dc + (double)bits; // do the dequantization
+  // only one dc_coeff, add it to buffer directly
+  buffer[i] = new_dc * qt[i];
+  // buf[i] = dc_coeff; // do the dequantization
+  i++;
+  this->bit_offset += category;
+
+  // ac
+  ht = component == component_t::Y ? this->ht_ac_luma : this->ht_ac_chroma;
+  while (i < 64) {
+    // find a huffman entry in table for ac
+    auto ac_entry = this->read_bit_with_ht(ht);
+    HuffmanCode code_info = ac_entry.first;
+    int prefix = this->peek_bit_stream(code_info.length);
+    char rrrrssss = ac_entry.second;
+    if (rrrrssss == 0) { // end of block in run-length coding
+      break;
+    }
+    uint8_t zero_count = rrrrssss >> 4;
+    uint8_t category = rrrrssss & 0x0F;
+    auto a = 1 << (category - 1);
+    // add zero_count zeros into ac coeffs
+    for (uint8_t k = 0; k < zero_count; k++) {
+      buffer[i+k] = 0.0;
+    }
+    i += zero_count;
+    int code = this->peek_bit_stream(category);
+    char ac_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
+    buffer[i] = (double)(ac_coeff * qt[i]);
+    // buf[i] = ac_coeff;
+    i++;
+    this->bit_offset += category;
+  }
+
+  zigzag_rearrange_8x8(buffer);
+  idct_8x8(buffer);
+  // upsampling todo
+  return new_dc;
 }

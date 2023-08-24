@@ -7,5 +7,5 @@ int main(int argc, char** argv) {
   JpegDecoder decoder(filename);
 
   char buffer[64]; // 8x8
-  decoder.decode8x8(buffer);
+  decoder.decode();
 }
