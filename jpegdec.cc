@@ -1,6 +1,7 @@
 #include "jpegdec.h"
 #include "common.h"
 #include <algorithm>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <ostream>
@@ -20,6 +21,43 @@ const uint8_t zigzag[] = {
         21,	34,	37,	47,	50,	56,	59,	61,   
         35,	36,	48,	49,	57,	58,	62,	63,
 };
+
+template <typename T>
+void zigzag_rearrange_8x8(T* buf) {
+  T* temp = new T[64];
+  memcpy(temp, buf, 64*sizeof(T));
+  for (int u = 0; u < 8; u++) {
+    for (int v = 0; v < 8; v++) {
+      // int zigzag_i = u * 8 + v;
+      int i = u*8+v;
+      int zigzag_i = zigzag[i];
+      buf[i] = temp[zigzag_i];
+    }
+  }
+  delete[] temp;
+}
+
+// inverse DCT transform
+void idct_8x8(const double in[64], double out[64])
+{
+  int i, j, u, v; // i, j: coord in time domain; u, v: coord in freq domain
+  double s;
+
+  for (i = 0; i < 8; i++)
+    for (j = 0; j < 8; j++)
+    {
+      s = 0;
+
+      for (u = 0; u < 8; u++)
+        for (v = 0; v < 8; v++)
+          s += in[u*8+v] * cos((2 * i + 1) * u * M_PI / 16) *
+                          cos((2 * j + 1) * v * M_PI / 16) *
+               ((u == 0) ? 1 / sqrt(2) : 1.) *
+               ((v == 0) ? 1 / sqrt(2) : 1.);
+
+      out[i*8+j] = s / 4;
+    }
+}
 
 JpegDecoder::JpegDecoder(const char* filename):
   file(filename), bit_offset(0)
@@ -237,7 +275,9 @@ uint32_t JpegDecoder::peek_bit_stream(uint8_t code_size) {
 
 // decode a 8x8 mcu and output to buffer
 void JpegDecoder::decode8x8(char* buffer) {
-  int* buf = new int[64];
+  int* y_buffer = new int[64];
+  int* cb_buffer = new int[64];
+  int* cr_buffer = new int[64];
   int i = 0;
 
   // luma component
@@ -254,7 +294,7 @@ void JpegDecoder::decode8x8(char* buffer) {
   int code = this->peek_bit_stream(category);
   char dc_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
   // only one dc_coeff, add it to buffer directly
-  buf[i] = dc_coeff * this->qt_luma[i]; // do the dequantization
+  y_buffer[i] = dc_coeff * this->qt_luma[i]; // do the dequantization
   // buf[i] = dc_coeff; // do the dequantization
   i++;
   this->bit_offset += category;
@@ -273,28 +313,28 @@ void JpegDecoder::decode8x8(char* buffer) {
     auto a = 1 << (category - 1);
     // add zero_count zeros into ac coeffs
     for (uint8_t k = 0; k < zero_count; k++) {
-      buf[i+k] = 0;
+      y_buffer[i+k] = 0;
     }
     i += zero_count;
     int code = this->peek_bit_stream(category);
     char ac_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
-    buf[i] = ac_coeff * this->qt_luma[i];
+    y_buffer[i] = ac_coeff * this->qt_luma[i];
     // buf[i] = ac_coeff;
     i++;
     this->bit_offset += category;
   }
 
+  zigzag_rearrange_8x8(y_buffer);
+
   for (int u = 0; u < 8; u++) {
     for (int v = 0; v < 8; v++) {
-      int zigzag_i = u * 8 + v;
-      // int zigzag_i = zigzag[u*8+v];
-      printf("%d\t", buf[zigzag_i]);
+      int i = u*8+v;
+      printf("%d\t", y_buffer[i]);
     }
     printf("\n");
   }
   // undo zig-zag
 }
-
 
 std::pair<huffman_code_t, char> JpegDecoder::read_bit_with_ht(huffman_table_t& ht) {
   for (auto huffman_table_entry: ht) {
