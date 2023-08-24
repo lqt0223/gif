@@ -101,18 +101,23 @@ JpegDecoder::JpegDecoder(const char* filename):
   // move to end of "start of scan" data part
   this->file.seekg(this->segments[segment_t::SOS][0].offset + this->segments[segment_t::SOS][0].length, ios::beg);
 
+  // get string from file content, with ff00 removed
   while(true) {
     cur = this->file.peek();
     if (cur == '\xff') {
       this->file.seekg(1, ios::cur);
       next = this->file.peek();
-      // skip ff00
+      // when ff00 is met, push ff only
       if (next == '\x00') {
+        this->bitstream += '\xff';
         this->file.seekg(1, ios::cur);
         // end of image
+      // when ffd9 is met, end of file
       } else if (next == '\xd9') {
         break;
+      // when ff other is met, push normally
       } else {
+        this->bitstream += '\xff';
         this->file.seekg(-1, ios::cur);
         this->file.read(&byte, 1);
         this->bitstream += byte;
@@ -254,11 +259,6 @@ void JpegDecoder::get_segments() {
 }
 // huffman code length is not greater than 16
 uint32_t JpegDecoder::peek_bit_stream(uint8_t code_size) {
-  // bound check
-  auto max_bit_offset = this->bitstream.size() * 8;
-  if (this->bit_offset + code_size > max_bit_offset) {
-    // printf("here\n");
-  }
   // the bit position - amount to shift left
   size_t start_shift = this->bit_offset % 8;
   size_t end_shift = (this->bit_offset + code_size) % 8;
@@ -295,18 +295,19 @@ void JpegDecoder::decode() {
   double dc_cb = 0.0;
 
   int i = 0;
-  while (true) { // todo
-    dc_y = this->decode_8x8_per_component(component_t::Y, dc_y);
-    printf("mcu no. %d Y\n", i);
-    print_8x8(this->buf1);
-    dc_cr = this->decode_8x8_per_component(component_t::Cr, dc_cr);
-    printf("mcu no. %d Cr\n", i);
-    print_8x8(this->buf1);
-    dc_cb = this->decode_8x8_per_component(component_t::Cb, dc_cb);
-    printf("mcu no. %d Cb\n", i);
-    print_8x8(this->buf1);
-    i++;
+  for (int u = 0; u < this->h / 8; u++) {
+    for (int v = 0; v < this->w / 8; v++) {
+      dc_y = this->decode_8x8_per_component(component_t::Y, dc_y);
+      dc_cr = this->decode_8x8_per_component(component_t::Cr, dc_cr);
+      dc_cb = this->decode_8x8_per_component(component_t::Cb, dc_cb);
+      i++;
+      if (false) { // todo
+        goto end;
+      }
+    }
   }
+end:
+  printf("here\n");
 }
 
 std::pair<huffman_code_t, char> JpegDecoder::read_bit_with_ht(huffman_table_t& ht) {
@@ -333,8 +334,6 @@ double JpegDecoder::decode_8x8_per_component(component_t component, double old_d
   // find a huffman entry in table for dc
   ht = component == component_t::Y ? &this->ht_dc_luma : &this->ht_dc_chroma;
   auto dc_entry = this->read_bit_with_ht(*ht);
-  HuffmanCode code_info = dc_entry.first;
-  int prefix = this->peek_bit_stream(code_info.length);
   // use the symbol corresponding to code as code_size for next read
   // symbol is also used as value category here
   char category = dc_entry.second;
@@ -353,8 +352,6 @@ double JpegDecoder::decode_8x8_per_component(component_t component, double old_d
   while (i < 64) {
     // find a huffman entry in table for ac
     auto ac_entry = this->read_bit_with_ht(*ht);
-    HuffmanCode code_info = ac_entry.first;
-    int prefix = this->peek_bit_stream(code_info.length);
     uint8_t rrrrssss = ac_entry.second;
     if (rrrrssss == 0) { // end of block in run-length coding
       break;
@@ -362,12 +359,10 @@ double JpegDecoder::decode_8x8_per_component(component_t component, double old_d
     uint8_t zero_count = rrrrssss >> 4;
     uint8_t category = rrrrssss & 0x0F;
     auto a = 1 << (category - 1);
-    // add zero_count zeros into ac coeffs
-    for (uint8_t k = 0; k < zero_count; k++) {
-      this->buf1[i+k] = 0.0;
-    }
+    // since the buffer is inited with zero, skip zero_counts
     i += zero_count;
     int code = this->peek_bit_stream(category);
+    // printf("%d %d %d %d\n", rrrrssss, zero_count, category, code);
     char ac_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
     this->buf1[i] = (double)(ac_coeff * qt[i]);
     // buf[i] = ac_coeff;
