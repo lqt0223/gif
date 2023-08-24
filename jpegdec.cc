@@ -38,25 +38,31 @@ void zigzag_rearrange_8x8(T* buf) {
 }
 
 // inverse DCT transform
-void idct_8x8(const double in[64], double out[64])
-{
+void idct_8x8(double* freq_domain_input) {
+  double *time_domain_output = new double[64];
   int i, j, u, v; // i, j: coord in time domain; u, v: coord in freq domain
   double s;
 
-  for (i = 0; i < 8; i++)
-    for (j = 0; j < 8; j++)
-    {
+  for (i = 0; i < 8; i++) {
+    for (j = 0; j < 8; j++) {
       s = 0;
 
-      for (u = 0; u < 8; u++)
-        for (v = 0; v < 8; v++)
-          s += in[u*8+v] * cos((2 * i + 1) * u * M_PI / 16) *
-                          cos((2 * j + 1) * v * M_PI / 16) *
-               ((u == 0) ? 1 / sqrt(2) : 1.) *
-               ((v == 0) ? 1 / sqrt(2) : 1.);
+      for (u = 0; u < 8; u++) {
+        for (v = 0; v < 8; v++) {
+          auto freq = freq_domain_input[u*8+v];
+          auto basis1 = cos((2*i+1)*u*M_PI/16);
+          auto basis2 = cos((2*j+1)*v*M_PI/16);
+          auto cu = u == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
+          auto cv = v == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
+          s += freq * basis1 * basis2 * cu * cv;
+        }
+      }
 
-      out[i*8+j] = s / 4;
+      time_domain_output[i*8+j] = floor(s / 4); // todo can floor be eliminated for precision
     }
+  }
+  memcpy(freq_domain_input, time_domain_output, sizeof(double) * 64);
+  delete[] time_domain_output;
 }
 
 JpegDecoder::JpegDecoder(const char* filename):
@@ -328,6 +334,7 @@ void JpegDecoder::decode8x8(char* buffer) {
   }
 
   zigzag_rearrange_8x8(y_buffer);
+  idct_8x8(y_buffer);
 
   for (int u = 0; u < 8; u++) {
     for (int v = 0; v < 8; v++) {
