@@ -53,6 +53,10 @@ typedef struct {
 class JpegDecoder {
   ifstream file;
 
+  // buffers
+  double buf1[64];
+  double buf2[64];
+
   // bit offset, and byte offset for bitstream reading, byte offset is on file.tellg
   size_t bit_offset;
   string bitstream;
@@ -70,7 +74,7 @@ class JpegDecoder {
   void get_segments();
   uint32_t peek_bit_stream(uint8_t length);
   std::pair<huffman_code_t, char> read_bit_with_ht(huffman_table_t& ht);
-  double decode_8x8_per_component(double* buffer, component_t component, double old_dc);
+  double decode_8x8_per_component(component_t component, double old_dc);
 public:
   JpegDecoder(const char* filename);
   void decode();
