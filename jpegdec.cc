@@ -55,7 +55,7 @@ void idct_8x8(double* freq_domain_input, double* time_domain_output) {
         }
       }
 
-      time_domain_output[i*8+j] = floor(s / 4); // todo can floor be eliminated for precision
+      time_domain_output[i*8+j] = s / 4;
     }
   }
 }
@@ -103,23 +103,12 @@ void output_rgb_8x8_to_buffer(uint8_t* dst, double* y, double* cr, double* cb, s
   }
 }
 
-JpegDecoder::JpegDecoder(const char* filename):
-  file(filename), bit_offset(0)
-{
-  assert(this->file.is_open() && "open file error");
-  this->reset_segments();
-  this->get_segments();
-
-  this->handle_dqts();
-  this->handle_sos0();
-  this->handle_hufs();
-
+// scan through image file, and extract bitstream for image data (with ff00 removed)
+void JpegDecoder::init_bitstream() {
   char byte, cur, next;
   // move to end of "start of scan" data part
   this->file.seekg(this->segments[segment_t::SOS][0].offset + this->segments[segment_t::SOS][0].length, ios::beg);
 
-  // get string from file content, with ff00 removed
-  // todo use a method
   while(true) {
     cur = this->file.peek();
     if (cur == '\xff') {
@@ -145,7 +134,20 @@ JpegDecoder::JpegDecoder(const char* filename):
       this->bitstream += byte;
     }
   }
+}
 
+JpegDecoder::JpegDecoder(const char* filename):
+  file(filename), bit_offset(0)
+{
+  assert(this->file.is_open() && "open file error");
+  this->reset_segments();
+  this->get_segments();
+
+  this->handle_dqts();
+  this->handle_sos0();
+  this->handle_hufs();
+
+  this->init_bitstream();
   // this->parse_context();
 }
 
@@ -167,19 +169,6 @@ void JpegDecoder::handle_sos0() {
   this->w = read_u16_be(this->file);
   read_assert_str_equal(this->file, buf, "\x03", "image component not 3");
   this->file.read((char*)&this->fc[0], 9);
-
-  // printf("%d\n", this->fc[0].id);
-  // printf("%d\n", this->fc[0].sampling_factor_packed.vertical);
-  // printf("%d\n", this->fc[0].sampling_factor_packed.horizontal);
-  // printf("%d\n", this->fc[0].quantization_mapping);
-  // printf("%d\n", this->fc[1].id);
-  // printf("%d\n", this->fc[1].sampling_factor_packed.vertical);
-  // printf("%d\n", this->fc[1].sampling_factor_packed.horizontal);
-  // printf("%d\n", this->fc[1].quantization_mapping);
-  // printf("%d\n", this->fc[2].id);
-  // printf("%d\n", this->fc[2].sampling_factor_packed.vertical);
-  // printf("%d\n", this->fc[2].sampling_factor_packed.horizontal);
-  // printf("%d\n", this->fc[2].quantization_mapping);
 }
 
 // handle each huffman table

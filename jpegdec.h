@@ -68,6 +68,7 @@ class JpegDecoder {
   // frame component config
   frame_component_t fc[3];
   // internal methods
+  void init_bitstream();
   void handle_dqts();
   void handle_hufs();
   void handle_huffman(int offset, int length);
