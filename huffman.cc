@@ -5,9 +5,8 @@
 #include <utility>
 #include <vector>
 #include "huffman.h"
-HuffmanTree::HuffmanTree() {}
 // the nodes created here all use dynamic allocation
-HuffmanTree::HuffmanTree(char nb_sym[16], char* symbols) {
+void HuffmanTree::init_with_nb_and_symbols(char nb_sym[16], char* symbols) {
     Node* left = Node::new_node();
     Node* right = Node::new_node();
     this->root = Node::new_node();

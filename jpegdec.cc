@@ -186,22 +186,21 @@ void JpegDecoder::handle_huffman(int offset, int length) {
   char* symbols = new char[sum];
 
   this->file.read(symbols, sum);
-  HuffmanTree* tree = new HuffmanTree(nb_sym, symbols);
 
   bool is_chroma = !!(ht_info & 1);
   bool is_ac = !!((ht_info & 0b10000) >> 4);
 
   if (is_ac) {
     if (is_chroma) {
-      this->ht_ac_chroma = tree;
+      this->ht_ac_chroma.init_with_nb_and_symbols(nb_sym, symbols);
     } else {
-      this->ht_ac_luma = tree;
+      this->ht_ac_luma.init_with_nb_and_symbols(nb_sym, symbols);
     }
   } else {
     if (is_chroma) {
-      this->ht_dc_chroma = tree;
+      this->ht_dc_chroma.init_with_nb_and_symbols(nb_sym, symbols);
     } else {
-      this->ht_dc_luma = tree;
+      this->ht_dc_luma.init_with_nb_and_symbols(nb_sym, symbols);
     }
   }
 
@@ -324,8 +323,8 @@ end:
 
 // read bit one by one from bitstream, while advancing in huffman tree.
 // When a leaf node is found, return
-char JpegDecoder::get_code_with_ht(HuffmanTree* ht) {
-  Node* cur = ht->root;
+char JpegDecoder::get_code_with_ht(HuffmanTree& ht) {
+  Node* cur = ht.root;
   while (true) {
     if (cur->left == nullptr && cur->right == nullptr && cur->letter != -1) {
       return cur->letter;
@@ -353,7 +352,7 @@ int get_coeff(char category, int bits) {
 int JpegDecoder::decode_8x8_per_component(int* dst, component_t component, int old_dc) {
   memset(dst, 0, sizeof(int) * 64);
   int i = 0;
-  HuffmanTree* ht;
+  HuffmanTree ht;
   uint8_t* qt;
 
   qt = component == component_t::Y ? this->qt_luma : this->qt_chroma;

@@ -25,8 +25,7 @@ typedef std::map<huffman_code_t, char> huffman_table_t;
 class HuffmanTree {
 public:
     Node* root;
-    HuffmanTree();
-    HuffmanTree(char nb_sym[16], char* symbols);
+    void init_with_nb_and_symbols(char nb_sym[16], char* symbols);
     char decode(unsigned int code, int n);
     void fill_table(huffman_table_t& table);
     void all_nodes(); 
