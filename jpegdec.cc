@@ -374,7 +374,7 @@ double get_coeff(char category, int bits) {
   if (bits >= l) {
     return (double)bits;
   } else {
-    return (double)(bits - 2 * l - 1);
+    return (double)(bits - 2 * l + 1);
   }
 }
 
