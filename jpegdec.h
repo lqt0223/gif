@@ -68,7 +68,7 @@ class JpegDecoder {
   void reset_segments();
   void get_segments();
   uint32_t peek_bit_stream(uint8_t length);
-  std::pair<huffman_code_t, char> read_bit_with_ht(huffman_table_t& ht);
+  char get_code_with_ht(HuffmanTree* ht);
   int decode_8x8_per_component(int* dst, component_t component, int old_dc);
 public:
   JpegDecoder(const char* filename);
@@ -78,11 +78,11 @@ public:
   uint8_t qt_luma[64];
   uint8_t qt_chroma[64];
 
-  // huffman tables
-  huffman_table_t ht_dc_luma;
-  huffman_table_t ht_dc_chroma;
-  huffman_table_t ht_ac_luma;
-  huffman_table_t ht_ac_chroma;
+  // huffman trees
+  HuffmanTree* ht_dc_luma;
+  HuffmanTree* ht_dc_chroma;
+  HuffmanTree* ht_ac_luma;
+  HuffmanTree* ht_ac_chroma;
 
   // width, height
   uint16_t w, h;

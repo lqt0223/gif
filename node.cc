@@ -72,7 +72,7 @@ Node* Node::getSiblingRight() {
 void Node::traverse_tree(Node* node, std::string& path) {
     // if it is a leaf node, log
     if (node->left == nullptr && node->right == nullptr && node->letter != -1) {
-        std::cout << node->letter << ": " << path << std::endl;
+        std::cout << +(unsigned char)node->letter << ": " << path << std::endl;
     } else {
         if (node->left) {
             std::string _path = std::string(path);

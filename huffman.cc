@@ -73,24 +73,6 @@ void traverse_tree_and_add(Node* node, unsigned int code, uint8_t n, huffman_tab
 
 void HuffmanTree::fill_table(huffman_table_t& table) {
     traverse_tree_and_add(this->root, 0, 0, table);
-// void Node::traverse_tree(Node* node, std::string& path) {
-//     // if it is a leaf node, log
-//     if (node->left == nullptr && node->right == nullptr && node->letter != -1) {
-//         std::cout << node->letter << ": " << path << std::endl;
-//     } else {
-//         if (node->left) {
-//             std::string _path = std::string(path);
-//             _path.push_back('0');
-//             traverse_tree(node->left, _path);
-//         }
-//         if (node->right) {
-//             std::string _path = std::string(path);
-//             _path.push_back('1');
-//             traverse_tree(node->right, _path);
-//         }
-//     }
-// }
-    
 }
 char HuffmanTree::decode(unsigned int code, int n) {
     Node* cur = this->root;
@@ -107,8 +89,8 @@ char HuffmanTree::decode(unsigned int code, int n) {
 }
 
 // for debugging
-// void HuffmanTree::all_codes() {
-//     std::string path;
-//     Node::traverse_tree(this->root, path);
-// }
+void HuffmanTree::all_nodes() {
+    std::string path;
+    Node::traverse_tree(this->root, path);
+}
 
