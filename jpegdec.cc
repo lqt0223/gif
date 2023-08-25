@@ -332,14 +332,14 @@ void JpegDecoder::decode() {
   for (int y_mcu = 0; y_mcu < this->h / 8; y_mcu++) {
     for (int x_mcu = 0; x_mcu < this->w / 8; x_mcu++) {
       dc_y = this->decode_8x8_per_component(this->buf_y, component_t::Y, dc_y);
-      // printf("mcu no. %d Y\n", i);
-      // print_8x8(this->buf_y);
+      // printf("mcu no. %d %d %d Y\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
+      // print_64(this->buf_y);
       dc_cr = this->decode_8x8_per_component(this->buf_cr, component_t::Cr, dc_cr);
-      // printf("mcu no. %d Cr\n", i);
-      // print_8x8(this->buf_cr);
+      // printf("mcu no. %d %d %d Cr\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
+      // print_64(this->buf_cr);
       dc_cb = this->decode_8x8_per_component(this->buf_cb, component_t::Cb, dc_cb);
-      // printf("mcu no. %d Cb\n", i);
-      // print_8x8(this->buf_cb);
+      // printf("mcu no. %d %d %d Cb\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
+      // print_64(this->buf_cb);
       output_rgb_8x8_to_buffer(output, this->buf_y, this->buf_cr, this->buf_cb, y_mcu, x_mcu, this->w);
       i++;
       if (false) { // todo
@@ -369,6 +369,15 @@ std::pair<huffman_code_t, char> JpegDecoder::read_bit_with_ht(huffman_table_t& h
   throw "code not found while reading bitstream with huffman table";
 }
 
+double get_coeff(char category, int bits) {
+  int l = 1 << (category - 1);
+  if (bits >= l) {
+    return (double)bits;
+  } else {
+    return (double)(bits - 2 * l - 1);
+  }
+}
+
 double JpegDecoder::decode_8x8_per_component(double* dst, component_t component, double old_dc) {
   memset(dst, 0, sizeof(double) * 64);
   int i = 0;
@@ -384,10 +393,10 @@ double JpegDecoder::decode_8x8_per_component(double* dst, component_t component,
   // use the symbol corresponding to code as code_size for next read
   // symbol is also used as value category here
   char category = dc_entry.second;
-  unsigned int a = 1 << (category - 1);
   int code = this->peek_bit_stream(category);
-  int bits = code >= a ? code : code - (2 * a - 1); // value category and coefficient
-  double new_dc = old_dc + (double)bits; // do the dequantization
+  double new_dc = old_dc + get_coeff(category, code);
+  // double new_dc = old_dc + (double)bits; // do the dequantization
+  // printf("%f %f %f %f %f\n", old_dc, (double)category, (double)code, (double)bits, new_dc);
   // only one dc_coeff, add it to buffer directly
   dst[i] = new_dc * qt[i];
   // buf[i] = dc_coeff; // do the dequantization
@@ -405,13 +414,12 @@ double JpegDecoder::decode_8x8_per_component(double* dst, component_t component,
     }
     uint8_t zero_count = rrrrssss >> 4;
     uint8_t category = rrrrssss & 0x0F;
-    unsigned int a = 1 << (category - 1);
     // since the buffer is inited with zero, skip zero_counts
     i += zero_count;
     int code = this->peek_bit_stream(category);
     // printf("%d %d %d %d\n", rrrrssss, zero_count, category, code);
-    int ac_coeff = code >= a ? code : code - (2 * a - 1); // value category and coefficient
-    dst[i] = (double)(ac_coeff * qt[i]);
+    double ac_coeff = get_coeff(category, code);
+    dst[i] = (double)ac_coeff * (double)qt[i];
     // buf[i] = ac_coeff;
     i++;
     this->bit_offset += category;
