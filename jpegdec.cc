@@ -114,26 +114,12 @@ JpegDecoder::JpegDecoder(const char* filename):
   this->handle_sos0();
   this->handle_hufs();
 
-  // for (auto table: tables) {
-  //   if (table.is_ac()) {
-  //     if (table.is_chroma()) {
-  //       this->ht_ac_chroma = table;
-  //     } else {
-  //       this->ht_ac_luma = table;
-  //     }
-  //   } else {
-  //     if (table.is_chroma()) {
-  //       this->ht_dc_chroma = table;
-  //     } else {
-  //       this->ht_dc_luma = table;
-  //     }
-  //   }
-  // }
   char byte, cur, next;
   // move to end of "start of scan" data part
   this->file.seekg(this->segments[segment_t::SOS][0].offset + this->segments[segment_t::SOS][0].length, ios::beg);
 
   // get string from file content, with ff00 removed
+  // todo use a method
   while(true) {
     cur = this->file.peek();
     if (cur == '\xff') {
@@ -309,16 +295,6 @@ uint32_t JpegDecoder::peek_bit_stream(uint8_t code_size) {
   code &= mask;
   return code;
 }
-#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
-#define BYTE_TO_BINARY(byte)  \
-((byte) & 0x80 ? '1' : '0'), \
-((byte) & 0x40 ? '1' : '0'), \
-((byte) & 0x20 ? '1' : '0'), \
-((byte) & 0x10 ? '1' : '0'), \
-((byte) & 0x08 ? '1' : '0'), \
-((byte) & 0x04 ? '1' : '0'), \
-((byte) & 0x02 ? '1' : '0'), \
-((byte) & 0x01 ? '1' : '0') 
 
 // decode 8x8 mcus and output
 void JpegDecoder::decode() {
@@ -357,6 +333,7 @@ end:
   delete[] output;
 }
 
+// todo try to use huffman tree for faster matching
 std::pair<huffman_code_t, char> JpegDecoder::read_bit_with_ht(huffman_table_t& ht) {
   for (auto huffman_table_entry: ht) {
     HuffmanCode code_info = huffman_table_entry.first;
@@ -378,6 +355,7 @@ double get_coeff(char category, int bits) {
   }
 }
 
+// todo can integer buffer be used here?
 double JpegDecoder::decode_8x8_per_component(double* dst, component_t component, double old_dc) {
   memset(dst, 0, sizeof(double) * 64);
   int i = 0;
