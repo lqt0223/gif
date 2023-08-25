@@ -29,6 +29,7 @@ public:
     char decode(unsigned int code, int n);
     void fill_table(huffman_table_t& table);
     void all_nodes(); 
+    ~HuffmanTree();
 };
 
 #endif

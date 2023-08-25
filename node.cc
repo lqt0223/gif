@@ -16,22 +16,13 @@ Node* Node::new_node() {
     n_node->letter = -1;
     return n_node;
 };
-Node* Node::copy(const Node* root) {
-    Node *new_root;
-    if(root!=NULL){
-        new_root= Node::new_node();
-        new_root->freq=root->freq;
-        new_root->letter=root->letter;
-        new_root->parent=root->parent;
-        Node* _left = copy(root->left);
-        new_root->left=_left;
-        if (_left != nullptr) _left->parent = new_root;
-
-        Node* _right = copy(root->right);
-        new_root->right=_right;
-        if (_right != nullptr) _right->parent = new_root;
-    } else return nullptr;
-    return new_root;
+// recursively free itself and descendants
+void Node::free(Node* node) {
+    if (node != nullptr) {
+        free(node->left);
+        free(node->right);
+        delete node;
+    }
 }
 void Node::setLeft(Node* _left) {
     left = _left;

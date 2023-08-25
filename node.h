@@ -18,6 +18,7 @@ public:
     void setLeft(Node* _left);
     void setRight(Node* _right);
     Node* getSiblingRight(); 
+    static void free(Node* node);
 };
 
 #endif

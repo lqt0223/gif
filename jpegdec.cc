@@ -323,8 +323,8 @@ end:
 
 // read bit one by one from bitstream, while advancing in huffman tree.
 // When a leaf node is found, return
-char JpegDecoder::get_code_with_ht(HuffmanTree& ht) {
-  Node* cur = ht.root;
+char JpegDecoder::get_code_with_ht(HuffmanTree* ht) {
+  Node* cur = ht->root;
   while (true) {
     if (cur->left == nullptr && cur->right == nullptr && cur->letter != -1) {
       return cur->letter;
@@ -352,14 +352,14 @@ int get_coeff(char category, int bits) {
 int JpegDecoder::decode_8x8_per_component(int* dst, component_t component, int old_dc) {
   memset(dst, 0, sizeof(int) * 64);
   int i = 0;
-  HuffmanTree ht;
+  HuffmanTree* ht; // use pointer here or the object construct and destruct will be invoked
   uint8_t* qt;
 
   qt = component == component_t::Y ? this->qt_luma : this->qt_chroma;
 
   // dc
   // find a huffman entry in table for dc
-  ht = component == component_t::Y ? this->ht_dc_luma : this->ht_dc_chroma;
+  ht = component == component_t::Y ? &this->ht_dc_luma : &this->ht_dc_chroma;
   uint8_t category = this->get_code_with_ht(ht);
   // use the symbol corresponding to code as code_size for next read
   // symbol is also used as value category here
@@ -372,7 +372,7 @@ int JpegDecoder::decode_8x8_per_component(int* dst, component_t component, int o
   this->bit_offset += category;
 
   // ac
-  ht = component == component_t::Y ? this->ht_ac_luma : this->ht_ac_chroma;
+  ht = component == component_t::Y ? &this->ht_ac_luma : &this->ht_ac_chroma;
   while (i < 64) {
     // find a huffman entry in table for ac
     uint8_t rrrrssss = this->get_code_with_ht(ht);
