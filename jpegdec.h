@@ -1,5 +1,5 @@
-#ifndef JPEGDEC
-#define JPEGDEC
+#ifndef JPEG_DEC
+#define JPEG_DEC
 
 #include <cstdint>
 #include <fstream>
@@ -38,7 +38,7 @@ typedef enum {
 } component_t;
 
 typedef struct {
-  int offset;
+  long long offset;
   int length;
 } segment_info_t;
 
@@ -51,7 +51,6 @@ class JpegDecoder {
   int buf_cb[64];
   int buf_temp[64];
 
-  // bit offset, and byte offset for bitstream reading, byte offset is on file.tellg
   size_t bit_offset;
   string bitstream;
 
@@ -61,9 +60,9 @@ class JpegDecoder {
   frame_component_t fc[3];
   // internal methods
   void init_bitstream();
-  void handle_dqts();
-  void handle_hufs();
-  void handle_huffman(int offset, int length);
+  void handle_define_quantization_tables();
+  void handle_huffman_tables();
+  void handle_huffman(long long offset);
   void handle_sos0();
   void reset_segments();
   void get_segments();
@@ -71,7 +70,7 @@ class JpegDecoder {
   char get_code_with_ht(HuffmanTree* ht);
   int decode_8x8_per_component(int* dst, component_t component, int old_dc);
 public:
-  JpegDecoder(const char* filename);
+  explicit JpegDecoder(const char* filename);
   void decode();
 
   // quantization tables

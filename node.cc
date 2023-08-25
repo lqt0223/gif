@@ -1,23 +1,17 @@
 #include "node.h"
 #include <iostream>
 
-Node::Node(): freq(-1), letter(-1), left(nullptr), right(nullptr), parent(nullptr) {};
-Node::Node(int f, char c, Node* lf, Node* rt) : freq(f), letter(c), parent(nullptr) {
-    setLeft(lf);
-    setRight(rt);
-};
-Node::Node(int f, char c) : freq(f), letter(c), left(nullptr), right(nullptr), parent(nullptr) {};
+Node::Node(): letter(-1), left(nullptr), right(nullptr), parent(nullptr) {}
 Node* Node::new_node() {
     Node* n_node = new Node;
     n_node->left = nullptr;
     n_node->right = nullptr;
     n_node->parent = nullptr;
-    n_node->freq = -1;
     n_node->letter = -1;
     return n_node;
-};
+}
 // recursively free itself and descendants
-void Node::free(Node* node) {
+void Node::free(Node* node) { // NOLINT(misc-no-recursion)
     if (node != nullptr) {
         free(node->left);
         free(node->right);
@@ -42,25 +36,24 @@ Node* Node::getSiblingRight() {
     // else if self is a right node
     } else if (this->parent->right == this) {
         int count = 0;
-        Node* nptr = this;
-        while (nptr->parent != nullptr && nptr->parent->right == nptr) {
-            nptr = nptr->parent;
+        Node* ptr = this;
+        while (ptr->parent != nullptr && ptr->parent->right == ptr) { ptr = ptr->parent;
             count++;
         }
-        if (nptr->parent == nullptr) {
+        if (ptr->parent == nullptr) {
             return nullptr;
         }
-        nptr = nptr->parent->right;
+        ptr = ptr->parent->right;
         while (count > 0) {
-            nptr = nptr->left;
+            ptr = ptr->left;
             count--;
         }
-        return nptr;
+        return ptr;
     }
     return nullptr;
-};
+}
 
-void Node::traverse_tree(Node* node, std::string& path) {
+void Node::traverse_tree(Node* node, std::string& path) { // NOLINT(misc-no-recursion)
     // if it is a leaf node, log
     if (node->left == nullptr && node->right == nullptr && node->letter != -1) {
         std::cout << +(unsigned char)node->letter << ": " << path << std::endl;
