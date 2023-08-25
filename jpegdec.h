@@ -37,14 +37,6 @@ typedef enum {
   Cb
 } component_t;
 
-// todo why bit field cannot get desired result here?
-// typedef union  __attribute__((__packed__)) {
-//   uint8_t raw;
-//   uint8_t : 3; // unused
-//   uint8_t type: 1;
-//   uint8_t num: 4;
-// } ht_info_t;
-
 typedef struct {
   int offset;
   int length;
@@ -54,10 +46,10 @@ class JpegDecoder {
   ifstream file;
 
   // buffers
-  double buf_y[64];
-  double buf_cr[64];
-  double buf_cb[64];
-  double buf_temp[64];
+  int buf_y[64];
+  int buf_cr[64];
+  int buf_cb[64];
+  int buf_temp[64];
 
   // bit offset, and byte offset for bitstream reading, byte offset is on file.tellg
   size_t bit_offset;
@@ -77,7 +69,7 @@ class JpegDecoder {
   void get_segments();
   uint32_t peek_bit_stream(uint8_t length);
   std::pair<huffman_code_t, char> read_bit_with_ht(huffman_table_t& ht);
-  double decode_8x8_per_component(double* dst, component_t component, double old_dc);
+  int decode_8x8_per_component(int* dst, component_t component, int old_dc);
 public:
   JpegDecoder(const char* filename);
   void decode();

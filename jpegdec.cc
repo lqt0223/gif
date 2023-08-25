@@ -10,7 +10,6 @@
 #include "huffman.h"
 
 char buf[16];
-double buf_8x8[64];
 
 const uint8_t zigzag[] = {
 	0,	1,	5,	6,	14,	15,	27,	28,
@@ -36,9 +35,9 @@ void zigzag_rearrange_8x8(T* input, T* output) {
 }
 
 // inverse DCT transform
-void idct_8x8(double* freq_domain_input, double* time_domain_output) {
+void idct_8x8(int* freq_domain_input, int* time_domain_output) {
   int i, j, u, v; // i, j: coord in time domain; u, v: coord in freq domain
-  double s;
+  float s;
 
   for (i = 0; i < 8; i++) {
     for (j = 0; j < 8; j++) {
@@ -46,49 +45,49 @@ void idct_8x8(double* freq_domain_input, double* time_domain_output) {
 
       for (u = 0; u < 8; u++) {
         for (v = 0; v < 8; v++) {
-          auto freq = freq_domain_input[u*8+v];
-          auto basis1 = cos((2*i+1)*u*M_PI/16);
-          auto basis2 = cos((2*j+1)*v*M_PI/16);
-          auto cu = u == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
-          auto cv = v == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
+          float freq = freq_domain_input[u*8+v];
+          float basis1 = cos((2.0*i+1.0)*u*M_PI/16.0);
+          float basis2 = cos((2.0*j+1.0)*v*M_PI/16.0);
+          float cu = u == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
+          float cv = v == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
           s += freq * basis1 * basis2 * cu * cv;
         }
       }
 
-      time_domain_output[i*8+j] = s / 4;
+      time_domain_output[i*8+j] = (int)(s / 4.0);
     }
   }
 }
 
-void print_64(double* buffer) {
+void print_64(int* buffer) {
   for (int i =0 ; i < 64; i++) {
-    printf("%d ", (int)buffer[i]);
+    printf("%d ", buffer[i]);
   }
   printf("\n");
 }
 
-void print_8x8(double* buffer) {
+void print_8x8(int* buffer) {
   for (int u = 0; u < 8; u++) {
     for (int v = 0; v < 8; v++) {
       int i = u*8+v;
-      printf("%d\t", (int)buffer[i]);
+      printf("%d\t", buffer[i]);
     }
     printf("\n");
   }
   printf("\n");
 }
 
-void output_rgb_8x8_to_buffer(uint8_t* dst, double* y, double* cr, double* cb, size_t x_mcu, size_t y_mcu, size_t stride) {
+void output_rgb_8x8_to_buffer(uint8_t* dst, int* y, int* cr, int* cb, size_t x_mcu, size_t y_mcu, size_t stride) {
   for (size_t i = 0; i < 64; i++) {
-    double _y = y[i];
-    double _cr = cr[i];
-    double _cb = cb[i];
+    float _y = y[i];
+    float _cr = cr[i];
+    float _cb = cb[i];
     
-    double r = _cb*(2-2*.114) + _y;
+    float r = _cb*(2-2*.114) + _y;
     // r = _y;
-    double b = _cr*(2-2*.299) + _y;
+    float b = _cr*(2-2*.299) + _y;
     // b = _y;
-    double g = (_y - .114*b - .299*r)/.587;
+    float g = (_y - .114*b - .299*r)/.587;
     // g = _y;
     r += 128.0; r = fmin(r, 255.0); r = fmax(r, 0.0);
     g += 128.0; g = fmin(g, 255.0); g = fmax(g, 0.0);
@@ -287,9 +286,9 @@ uint32_t JpegDecoder::peek_bit_stream(uint8_t code_size) {
 
 // decode 8x8 mcus and output
 void JpegDecoder::decode() {
-  double dc_y = 0.0;
-  double dc_cr = 0.0;
-  double dc_cb = 0.0;
+  int dc_y = 0.0;
+  int dc_cr = 0.0;
+  int dc_cb = 0.0;
 
   uint8_t* output = new uint8_t[this->w*this->h*3];
 
@@ -335,18 +334,17 @@ std::pair<huffman_code_t, char> JpegDecoder::read_bit_with_ht(huffman_table_t& h
   throw "code not found while reading bitstream with huffman table";
 }
 
-double get_coeff(char category, int bits) {
+int get_coeff(char category, int bits) {
   int l = 1 << (category - 1);
   if (bits >= l) {
-    return (double)bits;
+    return bits;
   } else {
-    return (double)(bits - 2 * l + 1);
+    return bits - 2 * l + 1;
   }
 }
 
-// todo can integer buffer be used here?
-double JpegDecoder::decode_8x8_per_component(double* dst, component_t component, double old_dc) {
-  memset(dst, 0, sizeof(double) * 64);
+int JpegDecoder::decode_8x8_per_component(int* dst, component_t component, int old_dc) {
+  memset(dst, 0, sizeof(int) * 64);
   int i = 0;
   huffman_table_t* ht;
   uint8_t* qt;
@@ -361,9 +359,7 @@ double JpegDecoder::decode_8x8_per_component(double* dst, component_t component,
   // symbol is also used as value category here
   char category = dc_entry.second;
   int code = this->peek_bit_stream(category);
-  double new_dc = old_dc + get_coeff(category, code);
-  // double new_dc = old_dc + (double)bits; // do the dequantization
-  // printf("%f %f %f %f %f\n", old_dc, (double)category, (double)code, (double)bits, new_dc);
+  int new_dc = old_dc + get_coeff(category, code);
   // only one dc_coeff, add it to buffer directly
   dst[i] = new_dc * qt[i];
   // buf[i] = dc_coeff; // do the dequantization
@@ -385,8 +381,8 @@ double JpegDecoder::decode_8x8_per_component(double* dst, component_t component,
     i += zero_count;
     int code = this->peek_bit_stream(category);
     // printf("%d %d %d %d\n", rrrrssss, zero_count, category, code);
-    double ac_coeff = get_coeff(category, code);
-    dst[i] = (double)ac_coeff * (double)qt[i];
+    int ac_coeff = get_coeff(category, code);
+    dst[i] = ac_coeff * qt[i];
     // buf[i] = ac_coeff;
     i++;
     this->bit_offset += category;
