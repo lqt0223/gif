@@ -66,7 +66,7 @@ class JpegDecoder {
   void handle_sos0();
   void reset_segments();
   void get_segments();
-  uint32_t peek_bit_stream(uint8_t length);
+  uint32_t read_bit_stream(uint8_t length);
   char get_code_with_ht(HuffmanTree* ht);
   int decode_8x8_per_component(int* dst, component_t component, int old_dc);
 public:

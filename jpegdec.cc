@@ -262,7 +262,7 @@ void JpegDecoder::get_segments() {
   }
 }
 // huffman code length is not greater than 16
-uint32_t JpegDecoder::peek_bit_stream(uint8_t code_size) {
+uint32_t JpegDecoder::read_bit_stream(uint8_t code_size) {
   // the bit position - amount to shift left
   size_t end_shift = (this->bit_offset + code_size) % 8;
   // the index position of bytestream
@@ -278,14 +278,16 @@ uint32_t JpegDecoder::peek_bit_stream(uint8_t code_size) {
   // mask to remove msb
   uint32_t mask = (1 << (code_size)) - 1;
   code &= mask;
+
+  this->bit_offset += code_size;
   return code;
 }
 
 // decode 8x8 MCUs and output
 void JpegDecoder::decode() {
-  int dc_y = 0.0;
-  int dc_cr = 0.0;
-  int dc_cb = 0.0;
+  int dc_y = 0;
+  int dc_cr = 0;
+  int dc_cb = 0;
 
   auto* output = new uint8_t[this->w*this->h*3];
 
@@ -320,8 +322,7 @@ char JpegDecoder::get_code_with_ht(HuffmanTree* ht) {
     if (cur->left == nullptr && cur->right == nullptr && cur->letter != -1) {
       return cur->letter;
     }
-    bool bit = this->peek_bit_stream(1);
-    this->bit_offset++;
+    bool bit = this->read_bit_stream(1);
     // right
     if (bit == 1) {
       cur = cur->right;
@@ -354,12 +355,11 @@ int JpegDecoder::decode_8x8_per_component(int* dst, component_t component, int o
   uint8_t dc_category = this->get_code_with_ht(ht);
   // use the symbol corresponding to code as code_size for next read
   // symbol is also used as value category here
-  uint32_t dc_code = this->peek_bit_stream(dc_category);
+  uint32_t dc_code = this->read_bit_stream(dc_category);
   int new_dc = old_dc + get_coefficient(dc_category, dc_code);
   // only one dc_coefficient, add it to buffer directly
   dst[i] = new_dc * qt[i];
   i++;
-  this->bit_offset += dc_category;
 
   // ac
   ht = component == component_t::Y ? &this->ht_ac_luma : &this->ht_ac_chroma;
@@ -373,12 +373,11 @@ int JpegDecoder::decode_8x8_per_component(int* dst, component_t component, int o
     uint8_t ac_category = rrrrssss & 0x0F;
     // since the buffer is inited with zero, skip zero_counts
     i += zero_count;
-    uint32_t ac_code = this->peek_bit_stream(ac_category);
+    uint32_t ac_code = this->read_bit_stream(ac_category);
     // printf("%d %d %d %d\n", rrrrssss, zero_count, category, code);
     int ac_coefficient = get_coefficient(ac_category, ac_code);
     dst[i] = ac_coefficient * qt[i];
     i++;
-    this->bit_offset += ac_category;
   }
 
   zigzag_rearrange_8x8(dst, this->buf_temp);
