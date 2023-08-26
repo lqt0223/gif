@@ -64,6 +64,7 @@ class JpegDecoder {
   int buf_cb[64];
   int buf_cr[64];
   int buf_temp[64];
+  int buf_temp2[64];
 
   size_t bit_offset;
   string bitstream;

@@ -58,6 +58,17 @@ void inverse_dct_8x8(const int* freq_domain_input, int* time_domain_output) {
   }
 }
 
+// upscale within 8x8 mcu, horizontal/vertical factor
+void upscale_8x8(const int* input, int* output, uint8_t horizontal, uint8_t vertical) {
+  for (int u = 0; u < 8; u++) {
+    for (int v = 0; v < 8; v++) {
+      int sample_u = u / vertical;
+      int sample_v = v / horizontal;
+      output[u*8+v] = input[sample_u*8+sample_v];
+    }
+  }
+}
+
 // void print_64(int* buffer) {
 //   for (int i =0 ; i < 64; i++) {
 //     printf("%d ", buffer[i]);
@@ -404,7 +415,11 @@ int JpegDecoder::decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_comp
   }
 
   zigzag_rearrange_8x8(dst, this->buf_temp);
-  inverse_dct_8x8(this->buf_temp, dst);
-  // up_sampling todo
+  inverse_dct_8x8(this->buf_temp, this->buf_temp2);
+  upscale_8x8(
+    this->buf_temp2, dst,
+    this->frame_components[nth_component].sampling_factor_packed.horizontal,
+    this->frame_components[nth_component].sampling_factor_packed.vertical
+  );
   return new_dc;
 }
