@@ -142,8 +142,9 @@ JpegDecoder::JpegDecoder(const char* filename):
   this->get_segments();
 
   this->handle_define_quantization_tables();
-  this->handle_sos0();
   this->handle_huffman_tables();
+  this->handle_sof0();
+  this->handle_sos();
 
   this->init_bitstream();
   // this->parse_context();
@@ -157,16 +158,23 @@ void JpegDecoder::reset_segments() {
   this->segments[segment_t::DHT] = vector<segment_info_t>();
 }
 
-// get image width, height etc..
-void JpegDecoder::handle_sos0() {
-  segment_info_t info = this->segments[segment_t::SOF0][0]; // only one sos0 segment
-  auto [offset, length] = info;
-  this->file.seekg(offset, ios::beg); // skip section length
+// get image width, height frame component config etc..
+void JpegDecoder::handle_sof0() {
+  segment_info_t info = this->segments[segment_t::SOF0][0]; // only one sof0 segment
+  this->file.seekg(info.offset, ios::beg);
   read_assert_str_equal(this->file, buf, "\x08", "data precision not 8");
   this->h = read_u16_be(this->file);
   this->w = read_u16_be(this->file);
   read_assert_str_equal(this->file, buf, "\x03", "image component not 3");
-  this->file.read((char*)&this->fc[0], 9);
+  this->file.read((char*)&this->frame_components[0], 9);
+}
+
+void JpegDecoder::handle_sos() {
+  segment_info_t info = this->segments[segment_t::SOS][0]; // only one sos segment
+  this->file.seekg(info.offset, ios::beg);
+  read_assert_str_equal(this->file, buf, "\x03", "image component not 3");
+  this->file.read((char*)&this->scan_components[0], 6);
+  // remaining data in sos segment is not for baseline dct - ignored
 }
 
 // handle each huffman table
@@ -185,21 +193,15 @@ void JpegDecoder::handle_huffman(long long offset) {
 
   this->file.read(symbols, sum);
 
-  bool is_chroma = !!(ht_info & 1);
-  bool is_ac = !!((ht_info & 0b10000) >> 4);
+  bool is_ac = !!(ht_info >> 4);
+  uint8_t destination = ht_info & 0x0f;
 
   if (is_ac) {
-    if (is_chroma) {
-      this->ht_ac_chroma.init_with_nb_and_symbols(nb_sym, symbols);
-    } else {
-      this->ht_ac_luma.init_with_nb_and_symbols(nb_sym, symbols);
-    }
+    this->ac_hts[destination] = HuffmanTree();
+    this->ac_hts[destination].init_with_nb_and_symbols(nb_sym, symbols);
   } else {
-    if (is_chroma) {
-      this->ht_dc_chroma.init_with_nb_and_symbols(nb_sym, symbols);
-    } else {
-      this->ht_dc_luma.init_with_nb_and_symbols(nb_sym, symbols);
-    }
+    this->dc_hts[destination] = HuffmanTree();
+    this->dc_hts[destination].init_with_nb_and_symbols(nb_sym, symbols);
   }
 
   delete[] symbols;
@@ -221,14 +223,14 @@ void JpegDecoder::handle_define_quantization_tables() {
   for (segment_info_t info: vec) {
     auto [offset, length] = info;
     this->file.seekg(offset, ios::beg);
-    // temp
-    char num_of_qt;
-    this->file.read(&num_of_qt, 1);
-    if (num_of_qt == 0) { // luma qt
-      this->file.read((char*)&this->qt_luma[0], length - 1);
-    } else if (num_of_qt == 1) { // chroma qt
-      this->file.read((char*)&this->qt_chroma[0], length - 1);
-    }
+
+    char qt_info;
+    string qt_data(128, 0); // make sure init qt_data memory
+    this->file.read(&qt_info, 1);
+    bool is_16_bit = !!(qt_info >> 4);
+    uint8_t destination = qt_info & 0x0f;
+    this->file.read(&qt_data[0], length - 1);
+    this->quantization_tables[destination] = qt_data;
   }
 }
 
@@ -295,13 +297,13 @@ void JpegDecoder::decode() {
 
   for (int y_mcu = 0; y_mcu < this->h / 8; y_mcu++) {
     for (int x_mcu = 0; x_mcu < this->w / 8; x_mcu++) {
-      dc_y = this->decode_8x8_per_component(this->buf_y, component_t::Y, dc_y);
+      dc_y = this->decode_8x8_per_component(this->buf_y, dc_y, 0);
       // printf("mcu no. %d %d %d Y\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
       // print_64(this->buf_y);
-      dc_cr = this->decode_8x8_per_component(this->buf_cr, component_t::Cr, dc_cr);
+      dc_cr = this->decode_8x8_per_component(this->buf_cr, dc_cr, 1);
       // printf("mcu no. %d %d %d Cr\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
       // print_64(this->buf_cr);
-      dc_cb = this->decode_8x8_per_component(this->buf_cb, component_t::Cb, dc_cb);
+      dc_cb = this->decode_8x8_per_component(this->buf_cb, dc_cb, 2);
       // printf("mcu no. %d %d %d Cb\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
       // print_64(this->buf_cb);
       output_rgb_8x8_to_buffer(output, this->buf_y, this->buf_cr, this->buf_cb, y_mcu, x_mcu, this->w);
@@ -343,28 +345,36 @@ int get_coefficient(uint8_t category, int bits) {
   }
 }
 
-int JpegDecoder::decode_8x8_per_component(int* dst, component_t component, int old_dc) {
+// todo, the component info and order is in sof0 header fc
+// component parameter is not needed
+int JpegDecoder::decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_component) {
   memset(dst, 0, sizeof(int) * 64);
   int i = 0;
   HuffmanTree* ht; // use pointer here or the object construct and destruct will be invoked
-  uint8_t* qt;
+  string* qt;
 
-  qt = component == component_t::Y ? this->qt_luma : this->qt_chroma;
+  // qt = component == component_t::Y ? this->qt_luma : this->qt_chroma;
+  uint8_t qt_destination = this->frame_components[nth_component].qt_destination;
+  qt = &this->quantization_tables[qt_destination];
 
   // dc
   // find a huffman entry in table for dc
-  ht = component == component_t::Y ? &this->ht_dc_luma : &this->ht_dc_chroma;
+  // ht = component == component_t::Y ? &this->ht_dc_luma : &this->ht_dc_chroma;
+  uint8_t ht_dc_destination = this->scan_components[nth_component].table_destinations_packed.t_dc;
+  ht = &this->dc_hts[ht_dc_destination];
   uint8_t dc_category = this->get_code_with_ht(ht);
   // use the symbol corresponding to code as code_size for next read
   // symbol is also used as value category here
   uint32_t dc_code = this->read_bit_stream(dc_category);
   int new_dc = old_dc + get_coefficient(dc_category, dc_code);
   // only one dc_coefficient, add it to buffer directly
-  dst[i] = new_dc * qt[i];
+  dst[i] = new_dc * (*qt)[i];
   i++;
 
   // ac
-  ht = component == component_t::Y ? &this->ht_ac_luma : &this->ht_ac_chroma;
+  // ht = component == component_t::Y ? &this->ht_ac_luma : &this->ht_ac_chroma;
+  uint8_t ht_ac_destination = this->scan_components[nth_component].table_destinations_packed.t_ac;
+  ht = &this->ac_hts[ht_ac_destination];
   while (i < 64) {
     // find a huffman entry in table for ac
     uint8_t rrrrssss = this->get_code_with_ht(ht);
@@ -372,13 +382,13 @@ int JpegDecoder::decode_8x8_per_component(int* dst, component_t component, int o
       break;
     }
     uint8_t zero_count = rrrrssss >> 4;
-    uint8_t ac_category = rrrrssss & 0x0F;
+    uint8_t ac_category = rrrrssss & 0x0f;
     // since the buffer is inited with zero, skip zero_counts
     i += zero_count;
     uint32_t ac_code = this->read_bit_stream(ac_category);
     // printf("%d %d %d %d\n", rrrrssss, zero_count, category, code);
     int ac_coefficient = get_coefficient(ac_category, ac_code);
-    dst[i] = ac_coefficient * qt[i];
+    dst[i] = ac_coefficient * (*qt)[i];
     i++;
   }
 
