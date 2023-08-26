@@ -47,8 +47,8 @@ typedef enum {
 
 typedef enum {
   Y = 0,
+  Cb,
   Cr,
-  Cb
 } component_t;
 
 typedef struct {
@@ -61,8 +61,8 @@ class JpegDecoder {
 
   // buffers
   int buf_y[64];
-  int buf_cr[64];
   int buf_cb[64];
+  int buf_cr[64];
   int buf_temp[64];
 
   size_t bit_offset;

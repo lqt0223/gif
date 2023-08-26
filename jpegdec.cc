@@ -76,22 +76,29 @@ void inverse_dct_8x8(const int* freq_domain_input, int* time_domain_output) {
 //   printf("\n");
 // }
 
-void output_rgb_8x8_to_buffer(uint8_t* dst, const int* Y, const int* Cr, const int* Cb, size_t x_mcu, size_t y_mcu, size_t stride) {
+// YCbCr to rgb
+void yuv2rgb(
+  float y, float cb, float cr,
+  float* r, float* g, float* b
+) {
+    *r =  (y + 128.0 + 1.40200 * cr);
+    *g =  (y + 128.0 - 0.34414 * cb - 0.71414 * cr);
+    *b =  (y + 128.0 + 1.77200 * cb);
+    
+    *r = (float)fmin(*r, 255.0); *r = (float)fmax(*r, 0.0);
+    *g = (float)fmin(*g, 255.0); *g = (float)fmax(*g, 0.0);
+    *b = (float)fmin(*b, 255.0); *b = (float)fmax(*b, 0.0);
+}
+
+void output_rgb_8x8_to_buffer(uint8_t* dst, const int* Y, const int* Cb, const int* Cr, size_t x_mcu, size_t y_mcu, size_t stride) {
   for (size_t i = 0; i < 64; i++) {
     auto _y = (float)Y[i];
-    auto _cr = (float)Cr[i];
     auto _cb = (float)Cb[i];
+    auto _cr = (float)Cr[i];
     
-    float r = _cb*float(2.0-2.0*.114) + _y;
-    // r = _y;
-    float b = _cr*float(2.0-2.0*.299) + _y;
-    // b = _y;
-    auto g = (float)((_y - .114*b - .299*r)/.587);
-    // g = _y;
-    r += 128.0; r = (float)fmin(r, 255.0); r = (float)fmax(r, 0.0);
-    g += 128.0; g = (float)fmin(g, 255.0); g = (float)fmax(g, 0.0);
-    b += 128.0; b = (float)fmin(b, 255.0); b = (float)fmax(b, 0.0);
-
+    float r,g,b;
+    yuv2rgb(_y, _cb, _cr, &r, &g, &b);
+    
     size_t xx = i / 8, yy = i % 8;
     size_t x = x_mcu * 8 + xx, y = y_mcu * 8 + yy;
     size_t ir = (x * stride + y) * 3, ig = ir + 1, ib = ir + 2;
@@ -304,13 +311,13 @@ void JpegDecoder::decode() {
       dc_y = this->decode_8x8_per_component(this->buf_y, dc_y, 0);
       // printf("mcu no. %d %d %d Y\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
       // print_64(this->buf_y);
-      dc_cr = this->decode_8x8_per_component(this->buf_cr, dc_cr, 1);
+      dc_cb = this->decode_8x8_per_component(this->buf_cb, dc_cb, 1);
       // printf("mcu no. %d %d %d Cr\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
       // print_64(this->buf_cr);
-      dc_cb = this->decode_8x8_per_component(this->buf_cb, dc_cb, 2);
+      dc_cr = this->decode_8x8_per_component(this->buf_cr, dc_cr, 2);
       // printf("mcu no. %d %d %d Cb\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
       // print_64(this->buf_cb);
-      output_rgb_8x8_to_buffer(output, this->buf_y, this->buf_cr, this->buf_cb, y_mcu, x_mcu, this->w);
+      output_rgb_8x8_to_buffer(output, this->buf_y, this->buf_cb, this->buf_cr, y_mcu, x_mcu, this->w);
     }
   }
   // output to stderr
