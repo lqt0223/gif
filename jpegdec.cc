@@ -177,34 +177,39 @@ void JpegDecoder::handle_sos() {
   // remaining data in sos segment is not for baseline dct - ignored
 }
 
-// handle each huffman table
-void JpegDecoder::handle_huffman(long long offset) {
+// extract each huffman table from dht segment
+void JpegDecoder::handle_huffman(long long offset, int length) {
   this->file.seekg(offset, ios::beg);
-  char ht_info; // 1 byte of packed huffman table info
-  this->file.read(&ht_info, 1);
+  while (length > 0) {
+    char ht_info; // 1 byte of packed huffman table info
+    this->file.read(&ht_info, 1);
+    length -= 1;
 
-  char nb_sym[16];
-  this->file.read(nb_sym, 16);
-  int sum = 0;
-  for (char i : nb_sym) {
-    sum += i;
+    char nb_sym[16];
+    this->file.read(nb_sym, 16);
+    length -= 16;
+    int sum = 0;
+    for (char i : nb_sym) {
+      sum += i;
+    }
+    char* symbols = new char[sum];
+
+    this->file.read(symbols, sum);
+    length -= sum;
+
+    bool is_ac = !!(ht_info >> 4);
+    uint8_t destination = ht_info & 0x0f;
+
+    if (is_ac) {
+      this->ac_hts[destination] = HuffmanTree();
+      this->ac_hts[destination].init_with_nb_and_symbols(nb_sym, symbols);
+    } else {
+      this->dc_hts[destination] = HuffmanTree();
+      this->dc_hts[destination].init_with_nb_and_symbols(nb_sym, symbols);
+    }
+
+    delete[] symbols;
   }
-  char* symbols = new char[sum];
-
-  this->file.read(symbols, sum);
-
-  bool is_ac = !!(ht_info >> 4);
-  uint8_t destination = ht_info & 0x0f;
-
-  if (is_ac) {
-    this->ac_hts[destination] = HuffmanTree();
-    this->ac_hts[destination].init_with_nb_and_symbols(nb_sym, symbols);
-  } else {
-    this->dc_hts[destination] = HuffmanTree();
-    this->dc_hts[destination].init_with_nb_and_symbols(nb_sym, symbols);
-  }
-
-  delete[] symbols;
 }
 
 // get 4 huffman tables
@@ -212,8 +217,7 @@ void JpegDecoder::handle_huffman_tables() {
   vector<segment_info_t> vec = this->segments[segment_t::DHT];
 
   for (segment_info_t info: vec) {
-    long long offset = info.offset;
-    this->handle_huffman(offset);
+    this->handle_huffman(info.offset, info.length);
   }
 }
 

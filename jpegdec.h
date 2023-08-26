@@ -78,7 +78,7 @@ class JpegDecoder {
   void init_bitstream();
   void handle_define_quantization_tables();
   void handle_huffman_tables();
-  void handle_huffman(long long offset);
+  void handle_huffman(long long offset, int length);
   void handle_sof0();
   void handle_sos();
   void reset_segments();
