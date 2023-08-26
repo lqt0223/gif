@@ -252,7 +252,7 @@ void JpegDecoder::handle_define_quantization_table(long long offset, int length)
   this->file.seekg(offset, ios::beg);
   while (length > 0) {
     char qt_info;
-    string qt_data(128, 0); // make sure init qt_data memory
+    string qt_data(64, 0); // make sure init qt_data memory
     this->file.read(&qt_info, 1);
     length -= 1;
     bool is_16_bit = !!(qt_info >> 4);
