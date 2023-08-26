@@ -61,8 +61,9 @@ void HuffmanTree::init_with_nb_and_symbols(const char nb_sym[16], const char* sy
 // }
 //
 // // for debugging
-// void HuffmanTree::all_nodes() {
-//     std::string path;
-//     Node::traverse_tree(this->root, path);
-// }
+void HuffmanTree::all_nodes() {
+    std::string path;
+    Node::traverse_tree(this->root, path);
+    printf("\n");
+}
 //
