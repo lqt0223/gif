@@ -239,20 +239,27 @@ void JpegDecoder::handle_huffman_tables() {
   }
 }
 
-// get 2 quantization tables
 void JpegDecoder::handle_define_quantization_tables() {
   vector<segment_info_t> vec = this->segments[segment_t::DQT];
   for (segment_info_t info: vec) {
-    auto [offset, length] = info;
-    this->file.seekg(offset, ios::beg);
+    this->handle_define_quantization_table(info.offset, info.length);
 
+  }
+}
+
+// extract each quantization table from dqt segment
+void JpegDecoder::handle_define_quantization_table(long long offset, int length) {
+  this->file.seekg(offset, ios::beg);
+  while (length > 0) {
     char qt_info;
     string qt_data(128, 0); // make sure init qt_data memory
     this->file.read(&qt_info, 1);
+    length -= 1;
     bool is_16_bit = !!(qt_info >> 4);
     uint8_t destination = qt_info & 0x0f;
-    this->file.read(&qt_data[0], length - 1);
+    this->file.read(&qt_data[0], 64);
     this->quantization_tables[destination] = qt_data;
+    length -= 64;
   }
 }
 
