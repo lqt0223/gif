@@ -28,7 +28,8 @@ typedef enum {
   DQT, // LUMA AND CHROMA
   SOF0,
   DHT, // DC AND AC, LUMA AND CHROMA
-  SOS
+  SOS,
+  COMMENT,
 } segment_t;
 
 typedef enum {

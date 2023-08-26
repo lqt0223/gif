@@ -253,6 +253,8 @@ void JpegDecoder::get_segments() {
       this->segments[segment_t::DHT].push_back(info);
     } else if (!memcmp(marker, "\xff\xc0", 2)) {
       this->segments[segment_t::SOF0].push_back(info);
+    } else if (!memcmp(marker, "\xff\xfe", 2)) {
+      this->segments[segment_t::COMMENT].push_back(info);
     } else if (!memcmp(marker, "\xff\xda", 2)) {
       this->segments[segment_t::SOS].push_back(info); // start of scan length is always next to end of jpeg
       break;
