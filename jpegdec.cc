@@ -204,6 +204,9 @@ void JpegDecoder::handle_sof0() {
     cbh == 1 && cbv == 1 &&
     crh == 1 && crv == 1
   ) {
+    // todo crop to original dimension at output
+    this->w = pad_8x(this->w);
+    this->h = pad_8x(this->h);
     this->mcu_w = 8; this->mcu_h = 8;
     this->sampl = sampling_t::YUV444;
 
@@ -218,6 +221,8 @@ void JpegDecoder::handle_sof0() {
     cbh == 1 && cbv == 1 &&
     crh == 1 && crv == 1
   )  {
+    this->w = pad_16x(this->w);
+    this->h = pad_16x(this->h);
     this->mcu_w = 16; this->mcu_h = 16;
     this->sampl = sampling_t::YUV420;
 
@@ -364,7 +369,7 @@ uint32_t JpegDecoder::read_bit_stream(uint8_t code_size) {
   return code;
 }
 
-// decode 8x8 MCUs and output
+// decode MCUs and output
 void JpegDecoder::decode() {
   int dc_y = 0;
   int dc_cr = 0;

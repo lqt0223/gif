@@ -1,4 +1,5 @@
 #include "common.h"
+#include <cmath>
 #include <fstream>
 
 uint16_t read_u16_be(std::ifstream& file) {
@@ -6,4 +7,13 @@ uint16_t read_u16_be(std::ifstream& file) {
     file.read((char*)&u1, 1);
     file.read((char*)&u2, 1);
     return (u1 << 8) | u2;
+}
+
+uint16_t pad_8x(uint16_t input) {
+    float mul = ceilf((float)input / 8.0);
+    return (uint16_t)mul * 8;
+}
+uint16_t pad_16x(uint16_t input) {
+    float mul = ceilf((float)input / 16.0);
+    return (uint16_t)mul * 16;
 }
