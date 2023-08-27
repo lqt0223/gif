@@ -1,6 +1,7 @@
 *.gif
 *.ppm
 *.jpg
+*.jpeg
 *.out*
 *.dSYM
 .idea

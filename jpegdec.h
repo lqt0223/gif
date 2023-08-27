@@ -106,8 +106,8 @@ class JpegDecoder {
   char get_code_with_ht(HuffmanTree* ht);
   int decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_component);
 public:
-  // todo destructor to release buffers
   explicit JpegDecoder(const char* filename);
+  ~JpegDecoder();
   void decode();
 
   // quantization tables map<table destination, 64(8bit) or 128(16bit) byte data>

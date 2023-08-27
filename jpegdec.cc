@@ -100,7 +100,7 @@ void output_rgb_8x8_to_buffer(
   for (size_t yy = 0; yy < 8; yy++) {
     for (size_t xx = 0; xx < 8; xx++) {
       point_t _xy_y = y_sampler({ xx, yy });
-      auto _y = (float)Y[_xy_y.y + _xy_y.x * 8]; // hack why x, y is reversed here
+      auto _y = (float)Y[_xy_y.y + _xy_y.x * 8];
       point_t _xy_cb = cb_sampler({ xx, yy });
       auto _cb = (float)Cb[_xy_cb.y + _xy_cb.x * 8];
       point_t _xy_cr = cr_sampler({ xx, yy });
@@ -150,6 +150,17 @@ void JpegDecoder::init_bitstream() {
   }
 }
 
+JpegDecoder::~JpegDecoder() {
+  for (auto ptr: this->y_bufs) {
+    delete[] ptr;
+  }
+  for (auto ptr: this->cb_bufs) {
+    delete[] ptr;
+  }
+  for (auto ptr: this->cr_bufs) {
+    delete[] ptr;
+  }
+}
 JpegDecoder::JpegDecoder(const char* filename):
   file(filename), bit_offset(0), w(0), h(0)
 {
@@ -184,8 +195,6 @@ void JpegDecoder::handle_sof0() {
   read_assert_str_equal(this->file, buf, "\x03", "image component not 3");
   this->file.read((char*)&this->frame_components[0], 9);
 
-  // todo analyze frame_component sampling factors and init buffers
-  // assume the sampling factors are 1:1:1 here
   int* buf_ptr;
   auto [yh, yv] = this->frame_components[0].sampling_factor_packed;
   auto [cbh, cbv] = this->frame_components[1].sampling_factor_packed;
@@ -446,8 +455,6 @@ int get_coefficient(uint8_t category, int bits) {
   }
 }
 
-// todo, the component info and order is in sof0 header fc
-// component parameter is not needed
 int JpegDecoder::decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_component) {
   memset(dst, 0, sizeof(int) * 64);
   int i = 0;
