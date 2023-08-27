@@ -28,6 +28,7 @@ typedef enum {
   YUV_DEFAULT, // 444
   YUV221111,
   YUV211111,
+  YUV121111,
 } sampling_t;
 
 typedef struct {

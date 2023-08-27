@@ -268,6 +268,25 @@ this->w = read_u16_be(this->file);
     this->cb_bufs.push_back(buf_ptr);
     buf_ptr = new int[64];
     this->cr_bufs.push_back(buf_ptr);
+  } else if (
+    yh == 1 && yv == 2 &&
+    cbh == 1 && cbv == 1 &&
+    crh == 1 && crv == 1
+  )  {
+    this->w = pad_16x(this->w);
+    this->h = pad_8x(this->h);
+    this->mcu_w = 16; this->mcu_h = 8;
+    this->sampl = sampling_t::YUV121111;
+
+    // two y buffers
+    for (int i = 0; i < 2; i++) {
+      buf_ptr = new int[64];
+      this->y_bufs.push_back(buf_ptr);
+    } 
+    buf_ptr = new int[64];
+    this->cb_bufs.push_back(buf_ptr);
+    buf_ptr = new int[64];
+    this->cr_bufs.push_back(buf_ptr);
   } else {
     throw "not supported";
   }
@@ -504,6 +523,29 @@ void JpegDecoder::decode() {
         dc_cr = this->decode_8x8_per_component(this->cr_bufs[0], dc_cr, 2);
         output_rgb_8x8_to_buffer(output, this->y_bufs[0], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_left, upsample_left, y_mcu*this->mcu_h, x_mcu*this->mcu_w, this->w);
         output_rgb_8x8_to_buffer(output, this->y_bufs[1], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_right, upsample_right, y_mcu*this->mcu_h+8, x_mcu*this->mcu_w, this->w);
+
+        // restart interval 
+        if (this->restart_interval > 0) {
+          restart_count--;
+          if (restart_count == 0) {
+            restart_count = this->restart_interval;
+            dc_y = dc_cb = dc_cr = 0;
+            if (this->bit_offset & 7) {
+              this->bit_offset += (8 - this->bit_offset & 7); //align to byte
+            }
+          }
+        }
+      }
+    }
+  } else if (this->sampl == sampling_t::YUV121111) {
+    for (int y_mcu = 0; y_mcu < this->h / this->mcu_h; y_mcu++) {
+      for (int x_mcu = 0; x_mcu < this->w / this->mcu_w; x_mcu++) {
+        dc_y = this->decode_8x8_per_component(this->y_bufs[0], dc_y, 0);
+        dc_y = this->decode_8x8_per_component(this->y_bufs[1], dc_y, 0);
+        dc_cb = this->decode_8x8_per_component(this->cb_bufs[0], dc_cb, 1);
+        dc_cr = this->decode_8x8_per_component(this->cr_bufs[0], dc_cr, 2);
+        output_rgb_8x8_to_buffer(output, this->y_bufs[0], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_top, upsample_top, y_mcu*this->mcu_h, x_mcu*this->mcu_w, this->w);
+        output_rgb_8x8_to_buffer(output, this->y_bufs[1], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_bottom, upsample_bottom, y_mcu*this->mcu_h, x_mcu*this->mcu_w+8, this->w);
 
         // restart interval 
         if (this->restart_interval > 0) {
