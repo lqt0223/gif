@@ -117,7 +117,7 @@ void output_rgb_8x8_to_buffer(
   }
 }
 
-// scan through image file, and extract bitstream for image data (with ff00 removed)
+// scan through image file, and extract bitstream for image data (with ff00 and restart markers removed)
 void JpegDecoder::init_bitstream() {
   char byte, cur, next;
   // move to end of "start of scan" data part
@@ -136,6 +136,9 @@ void JpegDecoder::init_bitstream() {
       // when ffd9 is met, end of file
       } else if (next == '\xd9') {
         break;
+      // restart markers
+      } else if (next >= '\xd0' && next <= '\xd7') {
+        this->file.seekg(1, ios::cur);
       // when ff other is met, push normally
       } else {
         this->bitstream += '\xff';
@@ -162,7 +165,7 @@ JpegDecoder::~JpegDecoder() {
   }
 }
 JpegDecoder::JpegDecoder(const char* filename):
-  file(filename), bit_offset(0), w(0), h(0)
+  file(filename), bit_offset(0), w(0), h(0), restart_interval(0)
 {
   assert(this->file.is_open() && "open file error");
   this->reset_segments();
@@ -170,6 +173,7 @@ JpegDecoder::JpegDecoder(const char* filename):
 
   this->handle_define_quantization_tables();
   this->handle_huffman_tables();
+  this->handle_restart();
   this->handle_sof0();
   this->handle_sos();
 
@@ -185,13 +189,21 @@ void JpegDecoder::reset_segments() {
   this->segments[segment_t::DHT] = vector<segment_info_t>();
 }
 
+void JpegDecoder::handle_restart() {
+  if (this->segments.contains(segment_t::DRI)) {
+    segment_info_t info = this->segments[segment_t::DRI][0]; // only one sof0 segment
+    this->file.seekg(info.offset, ios::beg);
+    this->restart_interval = read_u16_be(this->file);
+  }
+}
+
 // get image width, height frame component config etc..
 void JpegDecoder::handle_sof0() {
   segment_info_t info = this->segments[segment_t::SOF0][0]; // only one sof0 segment
   this->file.seekg(info.offset, ios::beg);
   read_assert_str_equal(this->file, buf, "\x08", "data precision not 8");
   this->h = read_u16_be(this->file);
-  this->w = read_u16_be(this->file);
+this->w = read_u16_be(this->file);
   read_assert_str_equal(this->file, buf, "\x03", "image component not 3");
   this->file.read((char*)&this->frame_components[0], 9);
 
@@ -339,6 +351,8 @@ void JpegDecoder::get_segments() {
       this->segments[segment_t::SOF0].push_back(info);
     } else if (!memcmp(marker, "\xff\xfe", 2)) {
       this->segments[segment_t::COMMENT].push_back(info);
+    } else if (!memcmp(marker, "\xff\xdd", 2)) {
+      this->segments[segment_t::DRI].push_back(info);
     } else if (!memcmp(marker, "\xff\xda", 2)) {
       this->segments[segment_t::SOS].push_back(info); // start of scan length is always next to end of jpeg
       break;
@@ -393,6 +407,8 @@ void JpegDecoder::decode() {
     return point_t { input.x/2+4, input.y/2+4 };
   };
 
+  size_t restart_count = this->restart_interval;
+
   // for mcu8x8(data is YCbCr packed, no chroma subsampling)
   if (this->sampl == sampling_t::YUV444) {
     for (int y_mcu = 0; y_mcu < this->h / this->mcu_h; y_mcu++) {
@@ -404,6 +420,18 @@ void JpegDecoder::decode() {
         dc_cr = this->decode_8x8_per_component(this->cr_bufs[0], dc_cr, 2);
         // printf("mcu no. %d %d %d Cb\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu); print_64(this->buf_cb);
         output_rgb_8x8_to_buffer(output, this->y_bufs[0], this->cb_bufs[0], this->cr_bufs[0], identical, identical, identical, y_mcu*this->mcu_h, x_mcu*this->mcu_w, this->w);
+
+        // restart interval 
+        if (this->restart_interval > 0) {
+          restart_count--;
+          if (restart_count == 0) {
+            restart_count = this->restart_interval;
+            dc_y = dc_cb = dc_cr = 0;
+            if (this->bit_offset & 7) {
+              this->bit_offset += (8 - this->bit_offset & 7); //align to byte
+            }
+          }
+        }
       }
     }
   } else if (this->sampl == sampling_t::YUV420) {
@@ -419,6 +447,18 @@ void JpegDecoder::decode() {
         output_rgb_8x8_to_buffer(output, this->y_bufs[1], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_bottom_left, upsample_bottom_left, y_mcu*this->mcu_h, x_mcu*this->mcu_w + 8, this->w);
         output_rgb_8x8_to_buffer(output, this->y_bufs[2], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_top_right, upsample_top_right, y_mcu*this->mcu_h + 8, x_mcu*this->mcu_w, this->w);
         output_rgb_8x8_to_buffer(output, this->y_bufs[3], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_bottom_right, upsample_bottom_right, y_mcu*this->mcu_h + 8, x_mcu*this->mcu_w + 8, this->w);
+
+        // restart interval 
+        if (this->restart_interval > 0) {
+          restart_count--;
+          if (restart_count == 0) {
+            restart_count = this->restart_interval;
+            dc_y = dc_cb = dc_cr = 0;
+            if (this->bit_offset & 7) {
+              this->bit_offset += (8 - this->bit_offset & 7); //align to byte
+            }
+          }
+        }
       }
     }
   } else {

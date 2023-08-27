@@ -57,6 +57,7 @@ typedef enum {
   DHT, // DC AND AC, LUMA AND CHROMA
   SOS,
   COMMENT,
+  DRI,
 } segment_t;
 
 typedef enum {
@@ -92,6 +93,8 @@ class JpegDecoder {
   sampling_t sampl;
   // scan component_config
   scan_component_t scan_components[3];
+  // restart_info
+  size_t restart_interval;
   // internal methods
   void init_bitstream();
   void handle_define_quantization_tables();
@@ -100,6 +103,7 @@ class JpegDecoder {
   void handle_huffman(long long offset, int length);
   void handle_sof0();
   void handle_sos();
+  void handle_restart();
   void reset_segments();
   void get_segments();
   uint32_t read_bit_stream(uint8_t length);
