@@ -23,6 +23,20 @@ typedef union {
   };
 } frame_component_t;
 
+typedef enum {
+  UNDEFINED = 0,
+  YUV444,
+  YUV420,
+} sampling_t;
+
+typedef struct {
+  size_t x;
+  size_t y;
+} point_t;
+
+// the function pointer that map an input point to another point(for up/down sampling)
+typedef point_t (*point_sampler_t)(point_t input);
+
 typedef struct {
   uint8_t t_dc: 4;
   uint8_t t_ac: 4;
@@ -60,9 +74,9 @@ class JpegDecoder {
   ifstream file;
 
   // buffers
-  int buf_y[64];
-  int buf_cb[64];
-  int buf_cr[64];
+  vector<int*> y_bufs;
+  vector<int*> cb_bufs;
+  vector<int*> cr_bufs;
   int buf_temp[64];
   int buf_temp2[64];
 
@@ -73,6 +87,9 @@ class JpegDecoder {
   map<segment_t, vector<segment_info_t>> segments;
   // frame component config
   frame_component_t frame_components[3];
+  // derived from frame component config
+  uint8_t mcu_w, mcu_h;
+  sampling_t sampl;
   // scan component_config
   scan_component_t scan_components[3];
   // internal methods
@@ -89,6 +106,7 @@ class JpegDecoder {
   char get_code_with_ht(HuffmanTree* ht);
   int decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_component);
 public:
+  // todo destructor to release buffers
   explicit JpegDecoder(const char* filename);
   void decode();
 

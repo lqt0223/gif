@@ -58,17 +58,6 @@ void inverse_dct_8x8(const int* freq_domain_input, int* time_domain_output) {
   }
 }
 
-// upscale within 8x8 mcu, horizontal/vertical factor
-void upscale_8x8(const int* input, int* output, uint8_t horizontal, uint8_t vertical) {
-  for (int u = 0; u < 8; u++) {
-    for (int v = 0; v < 8; v++) {
-      int sample_u = u / vertical;
-      int sample_v = v / horizontal;
-      output[u*8+v] = input[sample_u*8+sample_v];
-    }
-  }
-}
-
 // void print_64(int* buffer) {
 //   for (int i =0 ; i < 64; i++) {
 //     printf("%d ", buffer[i]);
@@ -101,21 +90,30 @@ void yuv2rgb(
     *b = (float)fmin(*b, 255.0); *b = (float)fmax(*b, 0.0);
 }
 
-void output_rgb_8x8_to_buffer(uint8_t* dst, const int* Y, const int* Cb, const int* Cr, size_t x_mcu, size_t y_mcu, size_t stride) {
-  for (size_t i = 0; i < 64; i++) {
-    auto _y = (float)Y[i];
-    auto _cb = (float)Cb[i];
-    auto _cr = (float)Cr[i];
-    
-    float r,g,b;
-    yuv2rgb(_y, _cb, _cr, &r, &g, &b);
-    
-    size_t xx = i / 8, yy = i % 8;
-    size_t x = x_mcu * 8 + xx, y = y_mcu * 8 + yy;
-    size_t ir = (x * stride + y) * 3, ig = ir + 1, ib = ir + 2;
-    dst[ir] = (uint8_t)r;
-    dst[ig] = (uint8_t)g;
-    dst[ib] = (uint8_t)b;
+void output_rgb_8x8_to_buffer(
+  uint8_t* dst, const int* Y, const int* Cb, const int* Cr,
+  auto& y_sampler,
+  auto& cb_sampler,
+  auto& cr_sampler,
+  size_t x, size_t y, size_t stride
+) {
+  for (size_t yy = 0; yy < 8; yy++) {
+    for (size_t xx = 0; xx < 8; xx++) {
+      point_t _xy_y = y_sampler({ xx, yy });
+      auto _y = (float)Y[_xy_y.y + _xy_y.x * 8]; // hack why x, y is reversed here
+      point_t _xy_cb = cb_sampler({ xx, yy });
+      auto _cb = (float)Cb[_xy_cb.y + _xy_cb.x * 8];
+      point_t _xy_cr = cr_sampler({ xx, yy });
+      auto _cr = (float)Cr[_xy_cr.y + _xy_cr.x * 8];
+      
+      float r,g,b;
+      yuv2rgb(_y, _cb, _cr, &r, &g, &b);
+      
+      size_t ir = ((x + xx) * stride + y + yy) * 3, ig = ir + 1, ib = ir + 2;
+      dst[ir] = (uint8_t)r;
+      dst[ig] = (uint8_t)g;
+      dst[ib] = (uint8_t)b;
+    }
   }
 }
 
@@ -185,6 +183,47 @@ void JpegDecoder::handle_sof0() {
   this->w = read_u16_be(this->file);
   read_assert_str_equal(this->file, buf, "\x03", "image component not 3");
   this->file.read((char*)&this->frame_components[0], 9);
+
+  // todo analyze frame_component sampling factors and init buffers
+  // assume the sampling factors are 1:1:1 here
+  int* buf_ptr;
+  auto [yh, yv] = this->frame_components[0].sampling_factor_packed;
+  auto [cbh, cbv] = this->frame_components[1].sampling_factor_packed;
+  auto [crh, crv] = this->frame_components[2].sampling_factor_packed;
+  if (
+    yh == 1 && yv == 1 &&
+    cbh == 1 && cbv == 1 &&
+    crh == 1 && crv == 1
+  ) {
+    this->mcu_w = 8; this->mcu_h = 8;
+    this->sampl = sampling_t::YUV444;
+
+    buf_ptr = new int[64];
+    this->y_bufs.push_back(buf_ptr);
+    buf_ptr = new int[64];
+    this->cb_bufs.push_back(buf_ptr);
+    buf_ptr = new int[64];
+    this->cr_bufs.push_back(buf_ptr);
+  } else if (
+    yh == 2 && yv == 2 &&
+    cbh == 1 && cbv == 1 &&
+    crh == 1 && crv == 1
+  )  {
+    this->mcu_w = 16; this->mcu_h = 16;
+    this->sampl = sampling_t::YUV420;
+
+    // four y buffers
+    for (int i = 0; i < 4; i++) {
+      buf_ptr = new int[64];
+      this->y_bufs.push_back(buf_ptr);
+    } 
+    buf_ptr = new int[64];
+    this->cb_bufs.push_back(buf_ptr);
+    buf_ptr = new int[64];
+    this->cr_bufs.push_back(buf_ptr);
+  } else {
+    throw "not supported";
+  }
 }
 
 void JpegDecoder::handle_sos() {
@@ -324,19 +363,52 @@ void JpegDecoder::decode() {
 
   auto* output = new uint8_t[this->w*this->h*3];
 
-  for (int y_mcu = 0; y_mcu < this->h / 8; y_mcu++) {
-    for (int x_mcu = 0; x_mcu < this->w / 8; x_mcu++) {
-      dc_y = this->decode_8x8_per_component(this->buf_y, dc_y, 0);
-      // printf("mcu no. %d %d %d Y\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
-      // print_64(this->buf_y);
-      dc_cb = this->decode_8x8_per_component(this->buf_cb, dc_cb, 1);
-      // printf("mcu no. %d %d %d Cr\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
-      // print_64(this->buf_cr);
-      dc_cr = this->decode_8x8_per_component(this->buf_cr, dc_cr, 2);
-      // printf("mcu no. %d %d %d Cb\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu);
-      // print_64(this->buf_cb);
-      output_rgb_8x8_to_buffer(output, this->buf_y, this->buf_cb, this->buf_cr, y_mcu, x_mcu, this->w);
+  auto identical = [&](point_t input) {
+    return input;
+  };
+  auto upsample_top_left = [&](point_t input) {
+    return point_t { input.x/2, input.y/2 };
+  };
+  auto upsample_top_right = [&](point_t input) {
+    return point_t { input.x/2+4, input.y/2 };
+  };
+  auto upsample_bottom_left = [&](point_t input) {
+    return point_t { input.x/2, input.y/2+4 };
+  };
+  auto upsample_bottom_right = [&](point_t input) {
+    return point_t { input.x/2+4, input.y/2+4 };
+  };
+
+  // for mcu8x8(data is YCbCr packed, no chroma subsampling)
+  if (this->sampl == sampling_t::YUV444) {
+    for (int y_mcu = 0; y_mcu < this->h / this->mcu_h; y_mcu++) {
+      for (int x_mcu = 0; x_mcu < this->w / this->mcu_w; x_mcu++) {
+        dc_y = this->decode_8x8_per_component(this->y_bufs[0], dc_y, 0);
+        // printf("mcu no. %d %d %d Y\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu); print_64(this->buf_y);
+        dc_cb = this->decode_8x8_per_component(this->cb_bufs[0], dc_cb, 1);
+        // printf("mcu no. %d %d %d Cr\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu); print_64(this->buf_cr);
+        dc_cr = this->decode_8x8_per_component(this->cr_bufs[0], dc_cr, 2);
+        // printf("mcu no. %d %d %d Cb\n", x_mcu, y_mcu, y_mcu * this->w / 8 + x_mcu); print_64(this->buf_cb);
+        output_rgb_8x8_to_buffer(output, this->y_bufs[0], this->cb_bufs[0], this->cr_bufs[0], identical, identical, identical, y_mcu*this->mcu_h, x_mcu*this->mcu_w, this->w);
+      }
     }
+  } else if (this->sampl == sampling_t::YUV420) {
+    for (int y_mcu = 0; y_mcu < this->h / this->mcu_h; y_mcu++) {
+      for (int x_mcu = 0; x_mcu < this->w / this->mcu_w; x_mcu++) {
+        dc_y = this->decode_8x8_per_component(this->y_bufs[0], dc_y, 0);
+        dc_y = this->decode_8x8_per_component(this->y_bufs[1], dc_y, 0);
+        dc_y = this->decode_8x8_per_component(this->y_bufs[2], dc_y, 0);
+        dc_y = this->decode_8x8_per_component(this->y_bufs[3], dc_y, 0);
+        dc_cb = this->decode_8x8_per_component(this->cb_bufs[0], dc_cb, 1);
+        dc_cr = this->decode_8x8_per_component(this->cr_bufs[0], dc_cr, 2);
+        output_rgb_8x8_to_buffer(output, this->y_bufs[0], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_top_left, upsample_top_left, y_mcu*this->mcu_h, x_mcu*this->mcu_w, this->w);
+        output_rgb_8x8_to_buffer(output, this->y_bufs[1], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_bottom_left, upsample_bottom_left, y_mcu*this->mcu_h, x_mcu*this->mcu_w + 8, this->w);
+        output_rgb_8x8_to_buffer(output, this->y_bufs[2], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_top_right, upsample_top_right, y_mcu*this->mcu_h + 8, x_mcu*this->mcu_w, this->w);
+        output_rgb_8x8_to_buffer(output, this->y_bufs[3], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_bottom_right, upsample_bottom_right, y_mcu*this->mcu_h + 8, x_mcu*this->mcu_w + 8, this->w);
+      }
+    }
+  } else {
+    throw "not supported";
   }
   // output to stderr
   printf("P3\n%d %d\n255\n", this->w, this->h);
@@ -422,11 +494,6 @@ int JpegDecoder::decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_comp
   }
 
   zigzag_rearrange_8x8(dst, this->buf_temp);
-  inverse_dct_8x8(this->buf_temp, this->buf_temp2);
-  upscale_8x8(
-    this->buf_temp2, dst,
-    this->frame_components[nth_component].sampling_factor_packed.horizontal,
-    this->frame_components[nth_component].sampling_factor_packed.vertical
-  );
+  inverse_dct_8x8(this->buf_temp, dst);
   return new_dc;
 }
