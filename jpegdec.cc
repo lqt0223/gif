@@ -1,6 +1,7 @@
 #include "jpegdec.h"
 #include "common.h"
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <ostream>
 #include <utility>
@@ -211,6 +212,7 @@ this->w = read_u16_be(this->file);
   auto [yh, yv] = this->frame_components[0].sampling_factor_packed;
   auto [cbh, cbv] = this->frame_components[1].sampling_factor_packed;
   auto [crh, crv] = this->frame_components[2].sampling_factor_packed;
+  fprintf(stderr, "%d %d %d %d %d %d\n", yh, yv, cbh, cbv, crh, crv);
   if (
     yh == 1 && yv == 1 &&
     cbh == 1 && cbv == 1 &&
@@ -220,7 +222,7 @@ this->w = read_u16_be(this->file);
     this->w = pad_8x(this->w);
     this->h = pad_8x(this->h);
     this->mcu_w = 8; this->mcu_h = 8;
-    this->sampl = sampling_t::YUV444;
+    this->sampl = sampling_t::YUV_DEFAULT;
 
     buf_ptr = new int[64];
     this->y_bufs.push_back(buf_ptr);
@@ -236,10 +238,29 @@ this->w = read_u16_be(this->file);
     this->w = pad_16x(this->w);
     this->h = pad_16x(this->h);
     this->mcu_w = 16; this->mcu_h = 16;
-    this->sampl = sampling_t::YUV420;
+    this->sampl = sampling_t::YUV221111;
 
     // four y buffers
     for (int i = 0; i < 4; i++) {
+      buf_ptr = new int[64];
+      this->y_bufs.push_back(buf_ptr);
+    } 
+    buf_ptr = new int[64];
+    this->cb_bufs.push_back(buf_ptr);
+    buf_ptr = new int[64];
+    this->cr_bufs.push_back(buf_ptr);
+  } else if (
+    yh == 2 && yv == 1 &&
+    cbh == 1 && cbv == 1 &&
+    crh == 1 && crv == 1
+  )  {
+    this->w = pad_8x(this->w);
+    this->h = pad_16x(this->h);
+    this->mcu_w = 8; this->mcu_h = 16;
+    this->sampl = sampling_t::YUV211111;
+
+    // two y buffers
+    for (int i = 0; i < 2; i++) {
       buf_ptr = new int[64];
       this->y_bufs.push_back(buf_ptr);
     } 
@@ -406,11 +427,23 @@ void JpegDecoder::decode() {
   auto upsample_bottom_right = [&](point_t input) {
     return point_t { input.x/2+4, input.y/2+4 };
   };
+  auto upsample_left = [&](point_t input) {
+    return point_t { input.x/2,  input.y };
+  };
+  auto upsample_right = [&](point_t input) {
+    return point_t { input.x/2+4,  input.y };
+  };
+  auto upsample_top = [&](point_t input) {
+    return point_t { input.x,  input.y/2 };
+  };
+  auto upsample_bottom = [&](point_t input) {
+    return point_t { input.x,  input.y/2+4 };
+  };
 
   size_t restart_count = this->restart_interval;
 
   // for mcu8x8(data is YCbCr packed, no chroma subsampling)
-  if (this->sampl == sampling_t::YUV444) {
+  if (this->sampl == sampling_t::YUV_DEFAULT) {
     for (int y_mcu = 0; y_mcu < this->h / this->mcu_h; y_mcu++) {
       for (int x_mcu = 0; x_mcu < this->w / this->mcu_w; x_mcu++) {
         dc_y = this->decode_8x8_per_component(this->y_bufs[0], dc_y, 0);
@@ -434,7 +467,7 @@ void JpegDecoder::decode() {
         }
       }
     }
-  } else if (this->sampl == sampling_t::YUV420) {
+  } else if (this->sampl == sampling_t::YUV221111) {
     for (int y_mcu = 0; y_mcu < this->h / this->mcu_h; y_mcu++) {
       for (int x_mcu = 0; x_mcu < this->w / this->mcu_w; x_mcu++) {
         dc_y = this->decode_8x8_per_component(this->y_bufs[0], dc_y, 0);
@@ -447,6 +480,30 @@ void JpegDecoder::decode() {
         output_rgb_8x8_to_buffer(output, this->y_bufs[1], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_bottom_left, upsample_bottom_left, y_mcu*this->mcu_h, x_mcu*this->mcu_w + 8, this->w);
         output_rgb_8x8_to_buffer(output, this->y_bufs[2], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_top_right, upsample_top_right, y_mcu*this->mcu_h + 8, x_mcu*this->mcu_w, this->w);
         output_rgb_8x8_to_buffer(output, this->y_bufs[3], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_bottom_right, upsample_bottom_right, y_mcu*this->mcu_h + 8, x_mcu*this->mcu_w + 8, this->w);
+
+        // restart interval 
+        if (this->restart_interval > 0) {
+          restart_count--;
+          if (restart_count == 0) {
+            restart_count = this->restart_interval;
+            dc_y = dc_cb = dc_cr = 0;
+            if (this->bit_offset & 7) {
+              this->bit_offset += (8 - this->bit_offset & 7); //align to byte
+            }
+          }
+
+        }
+      }
+    }
+  } else if (this->sampl == sampling_t::YUV211111) {
+    for (int y_mcu = 0; y_mcu < this->h / this->mcu_h; y_mcu++) {
+      for (int x_mcu = 0; x_mcu < this->w / this->mcu_w; x_mcu++) {
+        dc_y = this->decode_8x8_per_component(this->y_bufs[0], dc_y, 0);
+        dc_y = this->decode_8x8_per_component(this->y_bufs[1], dc_y, 0);
+        dc_cb = this->decode_8x8_per_component(this->cb_bufs[0], dc_cb, 1);
+        dc_cr = this->decode_8x8_per_component(this->cr_bufs[0], dc_cr, 2);
+        output_rgb_8x8_to_buffer(output, this->y_bufs[0], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_left, upsample_left, y_mcu*this->mcu_h, x_mcu*this->mcu_w, this->w);
+        output_rgb_8x8_to_buffer(output, this->y_bufs[1], this->cb_bufs[0], this->cr_bufs[0], identical, upsample_right, upsample_right, y_mcu*this->mcu_h+8, x_mcu*this->mcu_w, this->w);
 
         // restart interval 
         if (this->restart_interval > 0) {

@@ -25,8 +25,9 @@ typedef union {
 
 typedef enum {
   UNDEFINED = 0,
-  YUV444,
-  YUV420,
+  YUV_DEFAULT, // 444
+  YUV221111,
+  YUV211111,
 } sampling_t;
 
 typedef struct {
