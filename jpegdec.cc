@@ -179,6 +179,7 @@ JpegDecoder::JpegDecoder(const char* filename):
   this->handle_sos();
 
   this->init_bitstream();
+  this->file.close();
   // this->parse_context();
 }
 
