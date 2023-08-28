@@ -29,6 +29,7 @@ typedef enum {
   YUV221111,
   YUV211111,
   YUV121111,
+  YUV212121,
 } sampling_t;
 
 typedef struct {
