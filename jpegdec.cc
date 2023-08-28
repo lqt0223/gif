@@ -204,7 +204,7 @@ void JpegDecoder::handle_sof0() {
   this->file.seekg(info.offset, ios::beg);
   read_assert_str_equal(this->file, buf, "\x08", "data precision not 8");
   this->h = read_u16_be(this->file);
-this->w = read_u16_be(this->file);
+  this->w = read_u16_be(this->file);
   read_assert_str_equal(this->file, buf, "\x03", "image component not 3");
   this->file.read((char*)&this->frame_components[0], 9);
 
@@ -454,33 +454,15 @@ void JpegDecoder::decode() {
 
   auto* output = new uint8_t[this->w*this->h*3];
 
-  auto identical = [&](point_t input) {
-    return input;
-  };
-  auto upsample_top_left = [&](point_t input) {
-    return point_t { input.x/2, input.y/2 };
-  };
-  auto upsample_top_right = [&](point_t input) {
-    return point_t { input.x/2+4, input.y/2 };
-  };
-  auto upsample_bottom_left = [&](point_t input) {
-    return point_t { input.x/2, input.y/2+4 };
-  };
-  auto upsample_bottom_right = [&](point_t input) {
-    return point_t { input.x/2+4, input.y/2+4 };
-  };
-  auto upsample_left = [&](point_t input) {
-    return point_t { input.x/2,  input.y };
-  };
-  auto upsample_right = [&](point_t input) {
-    return point_t { input.x/2+4,  input.y };
-  };
-  auto upsample_top = [&](point_t input) {
-    return point_t { input.x,  input.y/2 };
-  };
-  auto upsample_bottom = [&](point_t input) {
-    return point_t { input.x,  input.y/2+4 };
-  };
+  auto identical = [&](point_t input) { return input; };
+  auto upsample_top_left = [&](point_t input) { return point_t { input.x/2, input.y/2 }; };
+  auto upsample_top_right = [&](point_t input) { return point_t { input.x/2+4, input.y/2 }; };
+  auto upsample_bottom_left = [&](point_t input) { return point_t { input.x/2, input.y/2+4 }; };
+  auto upsample_bottom_right = [&](point_t input) { return point_t { input.x/2+4, input.y/2+4 }; };
+  auto upsample_left = [&](point_t input) { return point_t { input.x/2,  input.y }; };
+  auto upsample_right = [&](point_t input) { return point_t { input.x/2+4,  input.y }; };
+  auto upsample_top = [&](point_t input) { return point_t { input.x,  input.y/2 }; };
+  auto upsample_bottom = [&](point_t input) { return point_t { input.x,  input.y/2+4 }; };
 
   size_t restart_count = this->restart_interval;
 
