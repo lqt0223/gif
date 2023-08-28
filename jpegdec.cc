@@ -595,9 +595,9 @@ void JpegDecoder::decode() {
     throw "not supported";
   }
   // output to stderr
-  printf("P3\n%d %d\n255\n", this->w, this->h);
+  printf("P6\n%d %d\n255\n", this->w, this->h);
   for (size_t i = 0; i < this->w*this->h*3; i++) {
-    printf("%d ", output[i]);
+    printf("%c", output[i]);
   }
   
   delete[] output;
