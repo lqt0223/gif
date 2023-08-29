@@ -27,12 +27,9 @@ const uint8_t zigzag[] = {
 
 template <typename T>
 void zigzag_rearrange_8x8(T* input, T* output) {
-  for (int u = 0; u < 8; u++) {
-    for (int v = 0; v < 8; v++) {
-      int i = u*8+v;
-      int zigzag_i = zigzag[i];
-      output[i] = input[zigzag_i];
-    }
+  for (int i = 0; i < 64; i++) {
+    int zigzag_i = zigzag[i];
+    output[zigzag_i] = input[i];
   }
 }
 
@@ -41,22 +38,22 @@ void dct_8x8(const int* time_domain_input, int* freq_domain_output) {
   int i, j, u, v; // i, j: coord in time domain; u, v: coord in freq domain
   float s;
 
-  for (i = 0; i < 8; i++) {
-    for (j = 0; j < 8; j++) {
+  for (u = 0; u < 8; u++) {
+    for (v = 0; v < 8; v++) {
       s = 0;
 
-      for (u = 0; u < 8; u++) {
-        for (v = 0; v < 8; v++) {
+      for (i = 0; i < 8; i++) {
+        for (j = 0; j < 8; j++) {
           auto freq = (float)time_domain_input[i*8+j];
           auto basis1 = (float)cos((2.0*i+1.0)*u*M_PI/16.0);
           auto basis2 = (float)cos((2.0*j+1.0)*v*M_PI/16.0);
-          float cu = i == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
-          float cv = j == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
+          float cu = u == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
+          float cv = v == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
           s += freq * basis1 * basis2 * cu * cv;
         }
       }
 
-      freq_domain_output[u*8+v] = (int)(s / 4.0);
+      *(freq_domain_output+u*8+v) = (int)(s / 4.0);
     }
   }
 }
@@ -194,7 +191,7 @@ void JpegEncoder::get_YCbCr_from_source(
 }
 
 // read from src, and save value to a 8x8 dst buffer
-void fill_8x8(
+void fill_8x8_and_shift(
     uint8_t* src, int* dst,
     uint8_t x,
     uint8_t y,
@@ -212,18 +209,15 @@ void fill_8x8(
 }
 
 void quantize_8x8(int* src, int* dst, const uint8_t* table) {
-    for (size_t u = 0; u < 8; u++) {
-        for (size_t v = 0; v < 8; v++) {
-            size_t i = u * 8 + v;
-            *(dst + i) = *(src + i) / *(table + i);
-        }
+    for (size_t i = 0; i < 64; i++) {
+        *(dst + i) = *(src + i) / (int)*(table + i);
     }
 }
 
 inline uint8_t get_category(int coeff) {
     if (coeff == 0) return 0;
     else if (coeff == 1 || coeff == -1) return 1;
-    return ceil(log2(abs(coeff)));
+    return log2(abs(coeff)) + 1;
 }
 
 inline int get_bit(uint8_t category, int dc_diff) {
@@ -263,18 +257,18 @@ int JpegEncoder::encode_8x8_per_component(
     memset(temp2, 0, 64);
     // 420 sampling
     uint8_t mcu_w = 8;
-    fill_8x8(src_buffer, temp1, 0, 0, 1, 1, mcu_w);
+    fill_8x8_and_shift(src_buffer, temp1, 0, 0, 1, 1, mcu_w);
     dct_8x8(temp1, temp2);
-    quantize_8x8(temp2, temp1, is_chroma ? qt_chroma : qt_luma);
-    zigzag_rearrange_8x8(temp1, temp2);
+    zigzag_rearrange_8x8(temp2, temp1);
+    quantize_8x8(temp1, temp2, is_chroma ? qt_chroma : qt_luma);
     // encode dc
     int dc_diff = temp2[0] - prev_dc;
     uint8_t category = get_category(dc_diff);
-    uint8_t bit = get_bit(category, dc_diff);
+    uint8_t dc_bit = get_bit(category, dc_diff);
     
-    auto category_code_info = ht_luma_dc.at(category);
+    auto category_code_info = (is_chroma ? ht_chroma_dc : ht_luma_dc).at(category);
     this->bitstream.append_bit(category_code_info.first, category_code_info.second);
-    this->bitstream.append_bit(category, bit);
+    this->bitstream.append_bit(category, dc_bit);
 
     // encode ac
     rle_63(temp2 + 1, rle_results);
@@ -282,10 +276,10 @@ int JpegEncoder::encode_8x8_per_component(
         const auto [zero_length, ac_coeff] = rle;
         uint8_t rrrr = zero_length;
         uint8_t ssss = get_category(ac_coeff);
-        auto rle_code_info = ht_luma_ac.at((rrrr << 4) | ssss);
-        uint8_t bit = get_bit(ssss, ac_coeff);
+        auto rle_code_info = (is_chroma ? ht_chroma_ac : ht_luma_ac).at((rrrr << 4) | ssss);
+        uint8_t ac_bit = get_bit(ssss, ac_coeff);
         this->bitstream.append_bit(rle_code_info.first, rle_code_info.second);
-        this->bitstream.append_bit(ssss, bit);
+        this->bitstream.append_bit(ssss, ac_bit);
     }
     return temp2[0];
 }

@@ -5,10 +5,10 @@ void BitStream::append_bit(uint8_t size, uint16_t bits) {
         uint8_t bit = bits >> (size - i - 1) & 1;
         size_t shift = this->bit_offset % 8;
         size_t index = this->bit_offset / 8;
-        if (this->store.size() == 0 || this->store.size() == index) {
+        if (this->store.empty() || this->store.size() == index) {
             this->store.push_back(0);
         }
-        this->store[index] |= bit << (7 - shift);
+        this->store[index] |= (bit << (7 - shift));
         this->bit_offset++;
 
         // byte stuffing - replace ff as ff00
