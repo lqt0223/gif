@@ -155,25 +155,21 @@ void JpegEncoder::output_ht(bool is_chroma, bool is_ac, const huffman_table_t& t
 
 void JpegEncoder::output_sof() {
     printf("\xff\xc0");
-    write_u16_be(17); // for 3-component jpeg
+    write_u16_be(11); // for 3-component jpeg
     printf("\x08"); // 8-bit precision
     write_u16_be(this->h); // height first
     write_u16_be(this->w);
-    printf("\x03"); // 3-component
+    printf("\x01"); // 3-component
     // 420 sampling
-    fwrite("\x01\x22\x00", 1, 3, stdout); 
-    fwrite("\x02\x11\x01", 1, 3, stdout);
-    fwrite("\x03\x11\x01", 1, 3, stdout);
+    fwrite("\x01\x11\x00", 1, 3, stdout);
 }
 
 void JpegEncoder::output_sos() {
     printf("\xff\xda");
-    write_u16_be(12); // for 3-component jpeg
-    printf("\x03"); // 3-component
+    write_u16_be(8); // for 3-component jpeg
+    printf("\x01"); // 3-component
     // 420 sampling
     fwrite("\x01\x00", 1, 2, stdout); 
-    printf("\x02\x11");
-    printf("\x03\x11");
     fwrite("\x00\x3f\x00", 1, 3, stdout); // for baseline dct
 }
 
@@ -266,7 +262,7 @@ int JpegEncoder::encode_8x8_per_component(
     memset(temp1, 0, 64);
     memset(temp2, 0, 64);
     // 420 sampling
-    uint8_t mcu_w = 16;
+    uint8_t mcu_w = 8;
     fill_8x8(src_buffer, temp1, 0, 0, 1, 1, mcu_w);
     dct_8x8(temp1, temp2);
     quantize_8x8(temp2, temp1, is_chroma ? qt_chroma : qt_luma);
@@ -296,7 +292,7 @@ int JpegEncoder::encode_8x8_per_component(
 
 void JpegEncoder::output_encoded_image_data() {
     // 420 sampling
-    uint8_t mcu_w = 16, mcu_h = 16;
+    uint8_t mcu_w = 8, mcu_h = 8;
 
     uint8_t* Y_MCU = new uint8_t[mcu_w*mcu_h];
     uint8_t* Cb_MCU = new uint8_t[mcu_w*mcu_h];
@@ -318,15 +314,15 @@ void JpegEncoder::output_encoded_image_data() {
             // Y1 top left
             dc_y = this->encode_8x8_per_component(Y_MCU, 0, 0, 1, 1, false, dc_y);
             // Y2 top right
-            dc_y = this->encode_8x8_per_component(Y_MCU, 8, 0, 1, 1, false, dc_y);
-            // Y3 bottom left
-            dc_y = this->encode_8x8_per_component(Y_MCU, 0, 8, 1, 1, false, dc_y);
-            // Y4 bottom right
-            dc_y = this->encode_8x8_per_component(Y_MCU, 8, 8, 1, 1, false, dc_y);
-            // Cb
-            dc_cb = this->encode_8x8_per_component(Cb_MCU, 0, 0, 2, 2, true, dc_cb);
-            // Cr
-            dc_cr = this->encode_8x8_per_component(Cr_MCU, 0, 0, 2, 2, true, dc_cr);
+            // dc_y = this->encode_8x8_per_component(Y_MCU, 8, 0, 1, 1, false, dc_y);
+            // // Y3 bottom left
+            // dc_y = this->encode_8x8_per_component(Y_MCU, 0, 8, 1, 1, false, dc_y);
+            // // Y4 bottom right
+            // dc_y = this->encode_8x8_per_component(Y_MCU, 8, 8, 1, 1, false, dc_y);
+            // // Cb
+            // dc_cb = this->encode_8x8_per_component(Cb_MCU, 0, 0, 2, 2, true, dc_cb);
+            // // Cr
+            // dc_cr = this->encode_8x8_per_component(Cr_MCU, 0, 0, 2, 2, true, dc_cr);
         }
     }
     std::cout << this->bitstream.store;
