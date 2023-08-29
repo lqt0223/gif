@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <ios>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -97,11 +98,13 @@ void JpegEncoder::read_as_ppm() {
     this->g = new unsigned char[this->w*this->h];
     this->b = new unsigned char[this->w*this->h];
 
+    this->file.seekg(1, std::ios::cur);
+
     // unpack data into 3 buffers
-    for (size_t i = 0; i < this->w*this->h*3;i++) {
+    for (size_t i = 0; i < this->w*this->h;i++) {
         this->r[i] = this->file.get();
-        this->g[i+1] = this->file.get();
-        this->b[i+2] = this->file.get();
+        this->g[i] = this->file.get();
+        this->b[i] = this->file.get();
     }
 }
 
