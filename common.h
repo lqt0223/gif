@@ -8,6 +8,7 @@
     assert(buf[0] == num && err)
 
 uint16_t read_u16_be(std::ifstream& file);
+void write_u16_be(uint16_t num);
 
 // pad a number by rounding up to the nearest integer which is divisible by 8
 uint16_t pad_8x(uint16_t input);
