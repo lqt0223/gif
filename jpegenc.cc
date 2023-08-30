@@ -75,8 +75,8 @@ void rgb2yuv(
   float* y, float* cb, float* cr
 ) {
     *y =  0.299 * r + 0.587 * g + 0.114 * b;
-    *cb = 128.0 - 0.168736 * r - 0.331264 * g + 0.5 * b;
-    *cr = 128.0 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+    *cb = -0.168736 * r - 0.331264 * g + 0.5 * b + 128.0;
+    *cr = 0.5 * r - 0.418688 * g - 0.081312 * b + 128.0;
     
     *y = (float)fmin(*y, 255.0); *y = (float)fmax(*y, 0.0);
     *cb = (float)fmin(*cb, 255.0); *cb = (float)fmax(*cb, 0.0);
@@ -210,7 +210,7 @@ void fill_8x8_and_shift(
 
 void quantize_8x8(int* src, int* dst, const uint8_t* table) {
     for (size_t i = 0; i < 64; i++) {
-        *(dst + i) = *(src + i) / (int)*(table + i);
+        dst[i] = (int)((float)src[i] / (float)table[i] + 0.5);
     }
 }
 
@@ -257,7 +257,7 @@ int JpegEncoder::encode_8x8_per_component(
     memset(temp2, 0, 64);
     // 420 sampling
     uint8_t mcu_w = 8;
-    fill_8x8_and_shift(src_buffer, temp1, 0, 0, 1, 1, mcu_w);
+    fill_8x8_and_shift(src_buffer, temp1, x, y, sample_h, sample_v, mcu_w);
     dct_8x8(temp1, temp2);
     zigzag_rearrange_8x8(temp2, temp1);
     quantize_8x8(temp1, temp2, is_chroma ? qt_chroma : qt_luma);
