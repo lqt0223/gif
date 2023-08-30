@@ -264,17 +264,29 @@ int JpegEncoder::encode_8x8_per_component(
     zigzag_rearrange_8x8(temp1, temp2);
     // encode dc
     int dc_diff = temp2[0] - prev_dc;
-    uint8_t category = get_category(dc_diff);
-    uint8_t dc_bit = get_bit(category, dc_diff);
-    
-    auto category_code_info = (is_chroma ? ht_chroma_dc : ht_luma_dc).at(category);
-    this->bitstream.append_bit(category_code_info.first, category_code_info.second);
-    this->bitstream.append_bit(category, dc_bit);
+    // when diff is zero, not need to append another bits
+    if (dc_diff == 0) {
+        auto dc_zero_diff_code_info = (is_chroma ? ht_chroma_dc : ht_luma_dc).at(0x00);
+        this->bitstream.append_bit(dc_zero_diff_code_info.first, dc_zero_diff_code_info.second);
+    } else {
+        uint8_t category = get_category(dc_diff);
+        uint8_t dc_bit = get_bit(category, dc_diff);
+        
+        auto category_code_info = (is_chroma ? ht_chroma_dc : ht_luma_dc).at(category);
+        this->bitstream.append_bit(category_code_info.first, category_code_info.second);
+        this->bitstream.append_bit(category, dc_bit);
+    }
 
     // encode ac
     rle_63(temp2 + 1, rle_results);
     for (auto rle: rle_results) {
         auto [zero_length, ac_coeff] = rle;
+        if (zero_length == 0 && ac_coeff == 0) {
+            auto eob_code_info = (is_chroma ? ht_chroma_ac : ht_luma_ac).at(0x00);
+            this->bitstream.append_bit(eob_code_info.first, eob_code_info.second);
+            break;
+        }
+
         while (zero_length > 15) {
             // 15, 0 is the zrl code
             auto zrl_code_info = (is_chroma ? ht_chroma_ac : ht_luma_ac).at(0xf0);
@@ -286,10 +298,7 @@ int JpegEncoder::encode_8x8_per_component(
         auto rle_code_info = (is_chroma ? ht_chroma_ac : ht_luma_ac).at((rrrr << 4) | ssss);
         uint8_t ac_bit = get_bit(ssss, ac_coeff);
         this->bitstream.append_bit(rle_code_info.first, rle_code_info.second);
-        // if rle is eob, only append eob itself
-        if (!(zero_length == 0 && ac_coeff == 0)) {
-            this->bitstream.append_bit(ssss, ac_bit);
-        }
+        this->bitstream.append_bit(ssss, ac_bit);
     }
     return temp2[0];
 }
