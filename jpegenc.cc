@@ -10,8 +10,8 @@
 #include <string>
 #include <vector>
 
-int temp1[64];
-int temp2[64];
+float temp1[64];
+float temp2[64];
 std::vector<std::pair<uint8_t, int>> rle_results;
 
 const uint8_t zigzag[] = {
@@ -34,7 +34,7 @@ void zigzag_rearrange_8x8(T* input, T* output) {
 }
 
 // DCT transform
-void dct_8x8(const int* time_domain_input, int* freq_domain_output) {
+void dct_8x8(const float* time_domain_input, float* freq_domain_output) {
   int i, j, u, v; // i, j: coord in time domain; u, v: coord in freq domain
   float s;
 
@@ -53,7 +53,7 @@ void dct_8x8(const int* time_domain_input, int* freq_domain_output) {
         }
       }
 
-      *(freq_domain_output+u*8+v) = (int)(s / 4.0);
+      *(freq_domain_output+u*8+v) = s / 4.0;
     }
   }
 }
@@ -74,13 +74,9 @@ void rgb2yuv(
   float r, float g, float b,
   float* y, float* cb, float* cr
 ) {
-    *y =  0.299 * r + 0.587 * g + 0.114 * b;
-    *cb = -0.168736 * r - 0.331264 * g + 0.5 * b + 128.0;
-    *cr = 0.5 * r - 0.418688 * g - 0.081312 * b + 128.0;
-    
-    *y = (float)fmin(*y, 255.0); *y = (float)fmax(*y, 0.0);
-    *cb = (float)fmin(*cb, 255.0); *cb = (float)fmax(*cb, 0.0);
-    *cr = (float)fmin(*cr, 255.0); *cr = (float)fmax(*cr, 0.0);
+    *y =  0.299 * r + 0.587 * g + 0.114 * b - 128.0;
+    *cb = -0.16874 * r - 0.33126 * g + 0.5 * b;
+    *cr = 0.5 * r - 0.41869 * g - 0.08131 * b;
 }
 
 void JpegEncoder::read_as_ppm() {
@@ -172,7 +168,7 @@ void JpegEncoder::output_sos() {
 
 void JpegEncoder::get_YCbCr_from_source(
     size_t x, size_t y, size_t w, size_t h, size_t stride,
-    uint8_t* Y, uint8_t* Cb, uint8_t* Cr
+    char* Y, char* Cb, char* Cr
 ) {
     float Yf, Cbf, Crf;
     for (size_t u = 0; u < h; u++) {
@@ -183,16 +179,16 @@ void JpegEncoder::get_YCbCr_from_source(
             uint8_t _b = this->b[i];
             size_t ii = u * w + v;
             rgb2yuv((float)_r, (float)_g, (float)_b, &Yf, &Cbf, &Crf);
-            *(Y + ii) = (uint8_t)Yf;
-            *(Cb + ii) = (uint8_t)Cbf;
-            *(Cr + ii) = (uint8_t)Crf;
+            *(Y + ii) = round(Yf);
+            *(Cb + ii) = round(Cbf);
+            *(Cr + ii) = round(Crf);
         }
     }
 }
 
 // read from src, and save value to a 8x8 dst buffer
-void fill_8x8_and_shift(
-    uint8_t* src, int* dst,
+void fill_8x8(
+    char* src, float* dst,
     uint8_t x,
     uint8_t y,
     uint8_t sample_h,
@@ -203,14 +199,15 @@ void fill_8x8_and_shift(
         for (size_t v = 0; v < 8; v++) {
             size_t i = (y + u) * sample_v * stride + (x + v) * sample_h;
             size_t ii = u * 8 + v;
-            *(dst + ii) = *(src + i) - 128;
+            *(dst + ii) = *(src + i);
         }
     }
 }
 
-void quantize_8x8(int* src, int* dst, const uint8_t* table) {
+void quantize_8x8(float* src, float* dst, const uint8_t* table) {
     for (size_t i = 0; i < 64; i++) {
-        dst[i] = (int)((float)src[i] / (float)table[i] + 0.5);
+        // round to integer
+        dst[i] = round(src[i] / table[i]);
     }
 }
 
@@ -223,14 +220,14 @@ inline uint8_t get_category(int coeff) {
 inline int get_bit(uint8_t category, int dc_diff) {
   int l = 1 << category;
   if (dc_diff < 0) {
-    return dc_diff + l;
+    return dc_diff + l - 1;
   } else {
     return dc_diff;
   }
 }
 
 // ac coefficients as input, and output(array of rrrrssss) as output
-void rle_63(int* input, std::vector<std::pair<uint8_t, int>>& output) {
+void rle_63(float* input, std::vector<std::pair<uint8_t, int>>& output) {
     output.clear();
     uint8_t zero_count = 0;
     for (size_t i = 0; i < 63; i++) {
@@ -248,7 +245,7 @@ void rle_63(int* input, std::vector<std::pair<uint8_t, int>>& output) {
 }
 
 int JpegEncoder::encode_8x8_per_component(
-    uint8_t* src_buffer,
+    char* src_buffer,
     size_t x, size_t y, size_t sample_h, size_t sample_v,
     bool is_chroma,
     int prev_dc
@@ -257,10 +254,10 @@ int JpegEncoder::encode_8x8_per_component(
     memset(temp2, 0, 64);
     // 420 sampling
     uint8_t mcu_w = 8;
-    fill_8x8_and_shift(src_buffer, temp1, x, y, sample_h, sample_v, mcu_w);
+    fill_8x8(src_buffer, temp1, x, y, sample_h, sample_v, mcu_w);
     dct_8x8(temp1, temp2);
-    zigzag_rearrange_8x8(temp2, temp1);
-    quantize_8x8(temp1, temp2, is_chroma ? qt_chroma : qt_luma);
+    quantize_8x8(temp2, temp1, is_chroma ? qt_chroma : qt_luma);
+    zigzag_rearrange_8x8(temp1, temp2);
     // encode dc
     int dc_diff = temp2[0] - prev_dc;
     uint8_t category = get_category(dc_diff);
@@ -279,7 +276,10 @@ int JpegEncoder::encode_8x8_per_component(
         auto rle_code_info = (is_chroma ? ht_chroma_ac : ht_luma_ac).at((rrrr << 4) | ssss);
         uint8_t ac_bit = get_bit(ssss, ac_coeff);
         this->bitstream.append_bit(rle_code_info.first, rle_code_info.second);
-        this->bitstream.append_bit(ssss, ac_bit);
+        // if rle is eob, only append eob itself
+        if (!(zero_length == 0 && ac_coeff == 0)) {
+            this->bitstream.append_bit(ssss, ac_bit);
+        }
     }
     return temp2[0];
 }
@@ -288,9 +288,9 @@ void JpegEncoder::output_encoded_image_data() {
     // 420 sampling
     uint8_t mcu_w = 8, mcu_h = 8;
 
-    uint8_t* Y_MCU = new uint8_t[mcu_w*mcu_h];
-    uint8_t* Cb_MCU = new uint8_t[mcu_w*mcu_h];
-    uint8_t* Cr_MCU = new uint8_t[mcu_w*mcu_h];
+    char* Y_MCU = new char[mcu_w*mcu_h];
+    char* Cb_MCU = new char[mcu_w*mcu_h];
+    char* Cr_MCU = new char[mcu_w*mcu_h];
 
     int* temp1 = new int[8*8];
     int* temp2 = new int[8*8];
