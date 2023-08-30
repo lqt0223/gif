@@ -274,7 +274,13 @@ int JpegEncoder::encode_8x8_per_component(
     // encode ac
     rle_63(temp2 + 1, rle_results);
     for (auto rle: rle_results) {
-        const auto [zero_length, ac_coeff] = rle;
+        auto [zero_length, ac_coeff] = rle;
+        while (zero_length > 15) {
+            // 15, 0 is the zrl code
+            auto zrl_code_info = (is_chroma ? ht_chroma_ac : ht_luma_ac).at(0xf0);
+            this->bitstream.append_bit(zrl_code_info.first, zrl_code_info.second);
+            zero_length -= 16;
+        }
         uint8_t rrrr = zero_length;
         uint8_t ssss = get_category(ac_coeff);
         auto rle_code_info = (is_chroma ? ht_chroma_ac : ht_luma_ac).at((rrrr << 4) | ssss);
