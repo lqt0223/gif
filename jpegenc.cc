@@ -142,13 +142,13 @@ std::string get_ht_spec(const huffman_table_t& table) {
 }
 
 
-void JpegEncoder::output_ht(bool is_chroma, bool is_ac, const huffman_table_t& table) {
+void JpegEncoder::output_ht(bool is_chroma, bool is_ac, const HuffmanEnc& table) {
     printf("\xff\xc4");
     uint8_t dest = (is_ac << 4) | is_chroma;
-    std::string ht_spec = get_ht_spec(table);
-    write_u16_be(ht_spec.size() + 1 + 2); // 64 + 1 + 2;
+    auto [ nb_syms, symbols ] = table.to_spec();
+    write_u16_be(nb_syms.size() + symbols.size() + 1 + 2);
     printf("%c", dest);
-    std::cout << ht_spec;
+    std::cout << nb_syms << symbols;
     // fwrite(table, sizeof(unsigned char), 64, stdout);
 }
 
@@ -343,18 +343,32 @@ void JpegEncoder::init_qt_tables() {
     }
 }
 
+const char Standard_DC_Luminance_NRCodes[] = { 0, 0, 7, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
+const unsigned char Standard_DC_Luminance_Values[] = { 4, 5, 3, 2, 6, 1, 0, 7, 8, 9, 10, 11 };
+const char Standard_DC_Chrominance_NRCodes[] = { 0, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0 };
+const unsigned char Standard_DC_Chrominance_Values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+
+void JpegEncoder::init_ht_tables() {
+    this->ht_luma_ac.init_with_entries(ht_luma_ac_original);
+    this->ht_chroma_ac.init_with_entries(ht_chroma_ac_original);
+
+    this->ht_luma_dc.init_with_spec(Standard_DC_Luminance_NRCodes, Standard_DC_Luminance_Values);
+    this->ht_chroma_dc.init_with_spec(Standard_DC_Chrominance_NRCodes, Standard_DC_Chrominance_Values);
+}
+
 void JpegEncoder::encode() {
     this->init_qt_tables();
+    this->init_ht_tables();
     
     printf("\xff\xd8"); // start of image
 
     this->output_qt(false, this->qt_luma);
     this->output_qt(true, this->qt_chroma);
 
-    this->output_ht(false, false, ht_luma_dc);
-    this->output_ht(false, true, ht_luma_ac);
-    this->output_ht(true, false, ht_chroma_dc);
-    this->output_ht(true, true, ht_chroma_ac);
+    this->output_ht(false, false, this->ht_luma_dc);
+    this->output_ht(false, true, this->ht_luma_ac);
+    this->output_ht(true, false, this->ht_chroma_dc);
+    this->output_ht(true, true, this->ht_chroma_ac);
     this->output_sof();
     this->output_sos();
     this->output_encoded_image_data();

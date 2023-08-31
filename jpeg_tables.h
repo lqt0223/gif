@@ -39,7 +39,7 @@ typedef std::map<uint8_t, std::pair<uint8_t, uint16_t>> huffman_table_t;
 // rrrrssss is packed in one byte
 
 // annex K p149
-const huffman_table_t ht_luma_dc = {
+const huffman_table_t ht_luma_dc_original = {
     htdc(0,2,00),
     htdc(1,3,010),
     htdc(2,3,011),
@@ -53,7 +53,7 @@ const huffman_table_t ht_luma_dc = {
     htdc(10,8,11111110),
     htdc(11,9,111111110),
 };
-const huffman_table_t ht_chroma_dc = {
+const huffman_table_t ht_chroma_dc_original = {
     htdc(0,2,00),
     htdc(1,2,01),
     htdc(2,2,10),
@@ -69,7 +69,7 @@ const huffman_table_t ht_chroma_dc = {
 };
 
 // annex K p150
-const huffman_table_t ht_luma_ac = {
+const huffman_table_t ht_luma_ac_original = {
     htac(0,0,4,1010), // EOB
 
     htac(0,1,2,00),
@@ -252,7 +252,7 @@ const huffman_table_t ht_luma_ac = {
 };
 
 // annex K p154
-const huffman_table_t ht_chroma_ac = {
+const huffman_table_t ht_chroma_ac_original = {
     htac(0,0,2,00), // EOB
 
     htac(0,1,2,01),
