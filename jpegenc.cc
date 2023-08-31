@@ -28,8 +28,7 @@ const uint8_t zigzag[] = {
 template <typename T>
 void zigzag_rearrange_8x8(T* input, T* output) {
   for (int i = 0; i < 64; i++) {
-    int zigzag_i = zigzag[i];
-    output[zigzag_i] = input[i];
+    output[zigzag[i]] = input[i];
   }
 }
 
@@ -165,8 +164,8 @@ void JpegEncoder::output_sof() {
     write_u16_be(this->h); // height first
     write_u16_be(this->w);
     printf("\x03"); // 3-component
-    // 444 sampling
-    fwrite("\x01\x11\x00", 1, 3, stdout); 
+    // 420 sampling
+    fwrite("\x01\x22\x00", 1, 3, stdout); 
     fwrite("\x02\x11\x01", 1, 3, stdout);
     fwrite("\x03\x11\x01", 1, 3, stdout);
 }
@@ -175,13 +174,14 @@ void JpegEncoder::output_sos() {
     printf("\xff\xda");
     write_u16_be(12); // for 3-component jpeg
     printf("\x03"); // 3-component
-    // 444 sampling
+    // 420 sampling
     fwrite("\x01\x00", 1, 2, stdout); 
     printf("\x02\x11");
     printf("\x03\x11");
     fwrite("\x00\x3f\x00", 1, 3, stdout); // for baseline dct
 }
 
+// todo, handle width and height that is not 8x
 void JpegEncoder::get_YCbCr_from_source(
     size_t x, size_t y, size_t w, size_t h, size_t stride,
     char* Y, char* Cb, char* Cr
@@ -259,10 +259,8 @@ int JpegEncoder::encode_8x8_per_component(
     bool is_chroma,
     int prev_dc
 ) {
-    memset(temp1, 0, 64);
-    memset(temp2, 0, 64);
-    // 444 sampling
-    uint8_t mcu_w = 8;
+    // 420 sampling
+    uint8_t mcu_w = 16;
     fill_8x8(src_buffer, temp1, x, y, sample_h, sample_v, mcu_w);
     dct_8x8(temp1, temp2);
     zigzag_rearrange_8x8(temp2, temp1);
@@ -310,7 +308,7 @@ int JpegEncoder::encode_8x8_per_component(
 
 void JpegEncoder::output_encoded_image_data() {
     // 444 sampling
-    uint8_t mcu_w = 8, mcu_h = 8;
+    uint8_t mcu_w = 16, mcu_h = 16;
 
     char* Y_MCU = new char[mcu_w*mcu_h];
     char* Cb_MCU = new char[mcu_w*mcu_h];
@@ -331,10 +329,16 @@ void JpegEncoder::output_encoded_image_data() {
 
             // Y1 top left
             dc_y = this->encode_8x8_per_component(Y_MCU, 0, 0, 1, 1, false, dc_y);
+            // Y2 top right
+            dc_y = this->encode_8x8_per_component(Y_MCU, 8, 0, 1, 1, false, dc_y);
+            // Y3 bottom left
+            dc_y = this->encode_8x8_per_component(Y_MCU, 0, 8, 1, 1, false, dc_y);
+            // Y4 bottom right
+            dc_y = this->encode_8x8_per_component(Y_MCU, 8, 8, 1, 1, false, dc_y);
             // Cb
-            dc_cb = this->encode_8x8_per_component(Cb_MCU, 0, 0, 1, 1, true, dc_cb);
+            dc_cb = this->encode_8x8_per_component(Cb_MCU, 0, 0, 2, 2, true, dc_cb);
             // Cr
-            dc_cr = this->encode_8x8_per_component(Cr_MCU, 0, 0, 1, 1, true, dc_cr);
+            dc_cr = this->encode_8x8_per_component(Cr_MCU, 0, 0, 2, 2, true, dc_cr);
         }
     }
     std::cout << this->bitstream.store;
