@@ -44,14 +44,11 @@ class JpegEncoder {
 
     BitStream bitstream;
 
-    // states
-    // huffman table ordered by its code
-    huffman_table_t ordered_table;
-    std::string temp;
+    uint8_t qt_luma[64];
+    uint8_t qt_chroma[64];
 
     void read_as_ppm();
-    // void sort_huffman_table(const huffman_table_t& input_table);
-    // void get_ht_spec(const huffman_table_t& table);
+    void init_qt_tables();
     void get_YCbCr_from_source(size_t x, size_t y, size_t w, size_t h, size_t stride, char* Y, char* Cb, char* Cr);
     int encode_8x8_per_component(char* src_buffer, size_t x, size_t y, size_t sample_h, size_t sample_v, bool is_chroma, int prev_dc);
     void output_qt(bool is_chroma, const uint8_t* table);

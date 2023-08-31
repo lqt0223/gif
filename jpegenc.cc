@@ -33,6 +33,12 @@ void zigzag_rearrange_8x8(T* input, T* output) {
   }
 }
 
+void quantize_8x8(float* src, float* dst, const uint8_t* table) {
+    for (size_t i = 0; i < 64; i++) {
+        dst[i] = round(src[i] / table[i]);
+    }
+}
+
 // DCT transform
 void dct_8x8(const float* time_domain_input, float* freq_domain_output) {
   int i, j, u, v; // i, j: coord in time domain; u, v: coord in freq domain
@@ -45,15 +51,15 @@ void dct_8x8(const float* time_domain_input, float* freq_domain_output) {
       for (i = 0; i < 8; i++) {
         for (j = 0; j < 8; j++) {
           auto freq = (float)time_domain_input[i*8+j];
-          auto basis1 = (float)cos((2.0*i+1.0)*u*M_PI/16.0);
-          auto basis2 = (float)cos((2.0*j+1.0)*v*M_PI/16.0);
-          float cu = u == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
-          float cv = v == 0.0 ? 1.0 / sqrt(2.0) : 1.0;
-          s += freq * basis1 * basis2 * cu * cv;
+          auto basis1 = (float)cosf((2.0*i+1.0)*u*M_PI/16.0);
+          auto basis2 = (float)cosf((2.0*j+1.0)*v*M_PI/16.0);
+          s += freq * basis1 * basis2;
         }
       }
+      float cu = u == 0.0 ? 1.0 / sqrtf(2.0) : 1.0;
+      float cv = v == 0.0 ? 1.0 / sqrtf(2.0) : 1.0;
 
-      *(freq_domain_output+u*8+v) = s / 4.0;
+      freq_domain_output[u*8+v] = s*cu*cv/4.0;
     }
   }
 }
@@ -183,9 +189,9 @@ void JpegEncoder::get_YCbCr_from_source(
             uint8_t _b = this->b[i];
             size_t ii = u * w + v;
             rgb2yuv((float)_r, (float)_g, (float)_b, &Yf, &Cbf, &Crf);
-            *(Y + ii) = round(Yf);
-            *(Cb + ii) = round(Cbf);
-            *(Cr + ii) = round(Crf);
+            *(Y + ii) = Yf;
+            *(Cb + ii) = Cbf;
+            *(Cr + ii) = Crf;
         }
     }
 }
@@ -205,13 +211,6 @@ void fill_8x8(
             size_t ii = u * 8 + v;
             *(dst + ii) = *(src + i);
         }
-    }
-}
-
-void quantize_8x8(float* src, float* dst, const uint8_t* table) {
-    for (size_t i = 0; i < 64; i++) {
-        // round to integer
-        dst[i] = round(src[i] / table[i]);
     }
 }
 
@@ -260,7 +259,7 @@ int JpegEncoder::encode_8x8_per_component(
     uint8_t mcu_w = 8;
     fill_8x8(src_buffer, temp1, x, y, sample_h, sample_v, mcu_w);
     dct_8x8(temp1, temp2);
-    quantize_8x8(temp2, temp1, is_chroma ? qt_chroma : qt_luma);
+    quantize_8x8(temp2, temp1, is_chroma ? this->qt_chroma : this->qt_luma);
     zigzag_rearrange_8x8(temp1, temp2);
     // encode dc
     int dc_diff = temp2[0] - prev_dc;
@@ -335,11 +334,22 @@ void JpegEncoder::output_encoded_image_data() {
     std::cout << this->bitstream.store;
 }
 
+// quantization tables should be transformed according to "quality" parameter
+// quality 50 example
+void JpegEncoder::init_qt_tables() {
+    for (size_t i = 0; i < 64; i++) {
+        this->qt_luma[i] = (qt_luma_original[i] + 1) / 2;
+        this->qt_chroma[i] = (qt_chroma_original[i] + 1) / 2;
+    }
+}
+
 void JpegEncoder::encode() {
+    this->init_qt_tables();
+    
     printf("\xff\xd8"); // start of image
 
-    this->output_qt(false, qt_luma);
-    this->output_qt(true, qt_chroma);
+    this->output_qt(false, this->qt_luma);
+    this->output_qt(true, this->qt_chroma);
 
     this->output_ht(false, false, ht_luma_dc);
     this->output_ht(false, true, ht_luma_ac);
