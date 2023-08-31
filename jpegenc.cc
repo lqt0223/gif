@@ -40,15 +40,15 @@ void quantize_8x8(float* src, float* dst, const uint8_t* table) {
 }
 
 // DCT transform
-void dct_and_quantize_and_zigzag(const float* time_domain_input, float* freq_domain_output, unsigned char* qt) {
+void dct_8x8(const float* time_domain_input, float* freq_domain_output) {
   int i, j, u, v; // i, j: coord in time domain; u, v: coord in freq domain
   float s;
 
   for (u = 0; u < 8; u++) {
     for (v = 0; v < 8; v++) {
       s = 0;
-      float cu = u == 0.0 ? 1.0 / sqrtf(8.0) : 0.5;
-      float cv = v == 0.0 ? 1.0 / sqrtf(8.0) : 0.5;
+      float cu = u == 0.0 ? 1.0 / sqrtf(2.0) : 1.0;
+      float cv = v == 0.0 ? 1.0 / sqrtf(2.0) : 1.0;
 
       for (i = 0; i < 8; i++) {
         for (j = 0; j < 8; j++) {
@@ -58,8 +58,7 @@ void dct_and_quantize_and_zigzag(const float* time_domain_input, float* freq_dom
           s += freq * basis1 * basis2;
         }
       }
-      s *= cu*cv/qt[zigzag[u*8+v]]; // todo why
-      freq_domain_output[zigzag[u*8+v]] = roundf(s);
+      freq_domain_output[u*8+v] = s * cu * cv / 4.0;
     }
   }
 }
@@ -265,8 +264,9 @@ int JpegEncoder::encode_8x8_per_component(
     // 444 sampling
     uint8_t mcu_w = 8;
     fill_8x8(src_buffer, temp1, x, y, sample_h, sample_v, mcu_w);
-    dct_and_quantize_and_zigzag(temp1, temp2, (is_chroma ? this->qt_chroma :  this->qt_luma));
-    // zigzag_rearrange_8x8(temp3, temp1);
+    dct_8x8(temp1, temp2);
+    zigzag_rearrange_8x8(temp2, temp1);
+    quantize_8x8(temp1, temp2, (is_chroma ? this->qt_chroma : this->qt_luma));
     // encode dc
     int dc_diff = temp2[0] - prev_dc;
     // when diff is zero, not need to append another bits
