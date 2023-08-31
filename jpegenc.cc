@@ -40,13 +40,15 @@ void quantize_8x8(float* src, float* dst, const uint8_t* table) {
 }
 
 // DCT transform
-void dct_8x8(const float* time_domain_input, float* freq_domain_output) {
+void dct_and_quantize_and_zigzag(const float* time_domain_input, float* freq_domain_output, unsigned char* qt) {
   int i, j, u, v; // i, j: coord in time domain; u, v: coord in freq domain
   float s;
 
   for (u = 0; u < 8; u++) {
     for (v = 0; v < 8; v++) {
       s = 0;
+      float cu = u == 0.0 ? 1.0 / sqrtf(8.0) : 0.5;
+      float cv = v == 0.0 ? 1.0 / sqrtf(8.0) : 0.5;
 
       for (i = 0; i < 8; i++) {
         for (j = 0; j < 8; j++) {
@@ -56,10 +58,8 @@ void dct_8x8(const float* time_domain_input, float* freq_domain_output) {
           s += freq * basis1 * basis2;
         }
       }
-      float cu = u == 0.0 ? 1.0 / sqrtf(2.0) : 1.0;
-      float cv = v == 0.0 ? 1.0 / sqrtf(2.0) : 1.0;
-
-      freq_domain_output[u*8+v] = s*cu*cv/4.0;
+      s *= cu*cv/qt[zigzag[u*8+v]]; // todo why
+      freq_domain_output[zigzag[u*8+v]] = roundf(s);
     }
   }
 }
@@ -108,8 +108,6 @@ void JpegEncoder::read_as_ppm() {
 }
 
 void JpegEncoder::output_qt(bool is_chroma, const uint8_t* table) {
-    printf("\xff\xdb");
-    write_u16_be(67); // 64 + 1 + 2;
     printf("%c", is_chroma ? 1 : 0);
     fwrite(table, sizeof(unsigned char), 64, stdout);
 }
@@ -141,14 +139,23 @@ std::string get_ht_spec(const huffman_table_t& table) {
     return code_lengths + symbols;
 }
 
-
-void JpegEncoder::output_ht(bool is_chroma, bool is_ac, const HuffmanEnc& table) {
+void JpegEncoder::output_hts() {
     printf("\xff\xc4");
+    uint16_t length = 0;
+    std::stringstream total;
+    this->output_ht(false, false, this->ht_luma_dc, &length, total);
+    this->output_ht(false, true, this->ht_luma_ac, &length, total);
+    this->output_ht(true, false, this->ht_chroma_dc, &length, total);
+    this->output_ht(true, true, this->ht_chroma_ac, &length, total);
+    write_u16_be(length + 2);
+    std::cout << total.str();
+}
+
+void JpegEncoder::output_ht(bool is_chroma, bool is_ac, const HuffmanEnc& table, uint16_t* total_length, std::stringstream& total) {
     uint8_t dest = (is_ac << 4) | is_chroma;
     auto [ nb_syms, symbols ] = table.to_spec();
-    write_u16_be(nb_syms.size() + symbols.size() + 1 + 2);
-    printf("%c", dest);
-    std::cout << nb_syms << symbols;
+    total << dest << nb_syms << symbols;
+    *total_length = *total_length + nb_syms.size() + symbols.size() + 1;
     // fwrite(table, sizeof(unsigned char), 64, stdout);
 }
 
@@ -258,9 +265,8 @@ int JpegEncoder::encode_8x8_per_component(
     // 444 sampling
     uint8_t mcu_w = 8;
     fill_8x8(src_buffer, temp1, x, y, sample_h, sample_v, mcu_w);
-    dct_8x8(temp1, temp2);
-    quantize_8x8(temp2, temp1, is_chroma ? this->qt_chroma : this->qt_luma);
-    zigzag_rearrange_8x8(temp1, temp2);
+    dct_and_quantize_and_zigzag(temp1, temp2, (is_chroma ? this->qt_chroma :  this->qt_luma));
+    // zigzag_rearrange_8x8(temp3, temp1);
     // encode dc
     int dc_diff = temp2[0] - prev_dc;
     // when diff is zero, not need to append another bits
@@ -338,22 +344,28 @@ void JpegEncoder::output_encoded_image_data() {
 // quality 50 example
 void JpegEncoder::init_qt_tables() {
     for (size_t i = 0; i < 64; i++) {
-        this->qt_luma[i] = (qt_luma_original[i] + 1) / 2;
-        this->qt_chroma[i] = (qt_chroma_original[i] + 1) / 2;
+        this->qt_luma[i] = qt_luma_original[i];
+        this->qt_chroma[i] = qt_chroma_original[i];
     }
 }
-
-const char Standard_DC_Luminance_NRCodes[] = { 0, 0, 7, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
-const unsigned char Standard_DC_Luminance_Values[] = { 4, 5, 3, 2, 6, 1, 0, 7, 8, 9, 10, 11 };
-const char Standard_DC_Chrominance_NRCodes[] = { 0, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0 };
-const unsigned char Standard_DC_Chrominance_Values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
 
 void JpegEncoder::init_ht_tables() {
     this->ht_luma_ac.init_with_entries(ht_luma_ac_original);
     this->ht_chroma_ac.init_with_entries(ht_chroma_ac_original);
 
-    this->ht_luma_dc.init_with_spec(Standard_DC_Luminance_NRCodes, Standard_DC_Luminance_Values);
-    this->ht_chroma_dc.init_with_spec(Standard_DC_Chrominance_NRCodes, Standard_DC_Chrominance_Values);
+    this->ht_luma_dc.init_with_entries(ht_luma_dc_original);
+    this->ht_chroma_dc.init_with_entries(ht_chroma_dc_original);
+}
+
+void JpegEncoder::output_app0() {
+    printf("\xff\xe0");
+    write_u16_be(16);
+    fwrite("JFIF\x00",1,5,stdout);
+
+    fwrite("\x01\x01\x00",1, 3, stdout);
+    write_u16_be(1);
+    write_u16_be(1);
+    fwrite("\x00\x00",1, 2, stdout);
 }
 
 void JpegEncoder::encode() {
@@ -362,14 +374,16 @@ void JpegEncoder::encode() {
     
     printf("\xff\xd8"); // start of image
 
+    // quantization tables
+    printf("\xff\xdb");
+    write_u16_be(132); // 64*2 + 2 + 2;
     this->output_qt(false, this->qt_luma);
     this->output_qt(true, this->qt_chroma);
 
-    this->output_ht(false, false, this->ht_luma_dc);
-    this->output_ht(false, true, this->ht_luma_ac);
-    this->output_ht(true, false, this->ht_chroma_dc);
-    this->output_ht(true, true, this->ht_chroma_ac);
     this->output_sof();
+
+    // huffman tables
+    this->output_hts();
     this->output_sos();
     this->output_encoded_image_data();
     printf("\xff\xd9"); // end of image

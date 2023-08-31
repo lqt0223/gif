@@ -31,6 +31,7 @@
 #define JPEG_ENC
 
 #include <fstream>
+#include <sstream>
 #include "jpeg_tables.h"
 #include "bitstream.h"
 #include "huffman_enc.h"
@@ -58,8 +59,10 @@ class JpegEncoder {
     void init_qt_tables();
     void get_YCbCr_from_source(size_t x, size_t y, size_t w, size_t h, size_t stride, char* Y, char* Cb, char* Cr);
     int encode_8x8_per_component(char* src_buffer, size_t x, size_t y, size_t sample_h, size_t sample_v, bool is_chroma, int prev_dc);
+    void output_app0();
     void output_qt(bool is_chroma, const uint8_t* table);
-    void output_ht(bool is_chroma, bool is_ac, const HuffmanEnc& table);
+    void output_hts();
+    void output_ht(bool is_chroma, bool is_ac, const HuffmanEnc& table, uint16_t* total_length, std::stringstream& total);
     void output_sof();
     void output_sos();
     void output_encoded_image_data();
