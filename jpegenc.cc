@@ -72,6 +72,9 @@ JpegEncoder::~JpegEncoder() {
     delete[] this->r;
     delete[] this->g;
     delete[] this->b;
+    delete[] this->Y_MCU;
+    delete[] this->Cb_MCU;
+    delete[] this->Cr_MCU;
 }
 
 void rgb2yuv(
@@ -108,33 +111,6 @@ void JpegEncoder::read_as_ppm() {
 void JpegEncoder::output_qt(bool is_chroma, const uint8_t* table) {
     printf("%c", is_chroma ? 1 : 0);
     fwrite(table, sizeof(unsigned char), 64, stdout);
-}
-
-// return ordered table symbols from table
-std::string table_symbols(const huffman_table_t& input_table) {
-    std::vector<huffman_table_entry_t> vec;
-    for (huffman_table_entry_t entry: input_table) {
-        vec.push_back({ entry.first, { entry.second.first, entry.second.second } });
-    }
-    sort(vec.begin(), vec.end(), [](huffman_table_entry_t a, huffman_table_entry_t b) {
-        return a.second.second < b.second.second;
-    });
-    std::string output;
-    for (huffman_table_entry_t entry: vec) {
-        output += entry.first;
-    }
-    return output;
-}
-
-// get specification(coded bytes in file) of huffman table
-std::string get_ht_spec(const huffman_table_t& table) {
-    std::string code_lengths(16, 0);
-    std::string symbols = table_symbols(table);
-    for (auto [category, code_info]: table) {
-        auto [code_length, code] = code_info;
-        code_lengths[code_length - 1]++;
-    }
-    return code_lengths + symbols;
 }
 
 void JpegEncoder::output_hts() {
@@ -310,14 +286,9 @@ void JpegEncoder::output_encoded_image_data() {
     // 444 sampling
     uint8_t mcu_w = 16, mcu_h = 16;
 
-    char* Y_MCU = new char[mcu_w*mcu_h];
-    char* Cb_MCU = new char[mcu_w*mcu_h];
-    char* Cr_MCU = new char[mcu_w*mcu_h];
-
-    int* temp1 = new int[8*8];
-    int* temp2 = new int[8*8];
-
-    std::vector<std::pair<uint8_t, int>> rle_results;
+    this->Y_MCU = new char[mcu_w*mcu_h];
+    this->Cb_MCU = new char[mcu_w*mcu_h];
+    this->Cr_MCU = new char[mcu_w*mcu_h];
 
     int dc_y = 0;
     int dc_cr = 0;
@@ -325,20 +296,23 @@ void JpegEncoder::output_encoded_image_data() {
 
     for (size_t mcu_y = 0; mcu_y < this->h / mcu_h; mcu_y++) {
         for (size_t mcu_x = 0; mcu_x < this->w / mcu_w; mcu_x++) {
-            this->get_YCbCr_from_source(mcu_x * mcu_w, mcu_y * mcu_h, mcu_w, mcu_h, this->w, Y_MCU, Cb_MCU, Cr_MCU);
+            this->get_YCbCr_from_source(
+                mcu_x * mcu_w, mcu_y * mcu_h, mcu_w, mcu_h, this->w,
+                this->Y_MCU, this->Cb_MCU, this->Cr_MCU
+            );
 
             // Y1 top left
-            dc_y = this->encode_8x8_per_component(Y_MCU, 0, 0, 1, 1, false, dc_y);
+            dc_y = this->encode_8x8_per_component(this->Y_MCU, 0, 0, 1, 1, false, dc_y);
             // Y2 top right
-            dc_y = this->encode_8x8_per_component(Y_MCU, 8, 0, 1, 1, false, dc_y);
+            dc_y = this->encode_8x8_per_component(this->Y_MCU, 8, 0, 1, 1, false, dc_y);
             // Y3 bottom left
-            dc_y = this->encode_8x8_per_component(Y_MCU, 0, 8, 1, 1, false, dc_y);
+            dc_y = this->encode_8x8_per_component(this->Y_MCU, 0, 8, 1, 1, false, dc_y);
             // Y4 bottom right
-            dc_y = this->encode_8x8_per_component(Y_MCU, 8, 8, 1, 1, false, dc_y);
+            dc_y = this->encode_8x8_per_component(this->Y_MCU, 8, 8, 1, 1, false, dc_y);
             // Cb
-            dc_cb = this->encode_8x8_per_component(Cb_MCU, 0, 0, 2, 2, true, dc_cb);
+            dc_cb = this->encode_8x8_per_component(this->Cb_MCU, 0, 0, 2, 2, true, dc_cb);
             // Cr
-            dc_cr = this->encode_8x8_per_component(Cr_MCU, 0, 0, 2, 2, true, dc_cr);
+            dc_cr = this->encode_8x8_per_component(this->Cr_MCU, 0, 0, 2, 2, true, dc_cr);
         }
     }
     std::cout << this->bitstream.store;

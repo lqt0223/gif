@@ -43,6 +43,9 @@ class JpegEncoder {
     unsigned char* r;
     unsigned char* g;
     unsigned char* b;
+    char* Y_MCU;
+    char* Cb_MCU;
+    char* Cr_MCU;
 
     BitStream bitstream;
 
