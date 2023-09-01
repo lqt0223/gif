@@ -121,8 +121,8 @@ public:
   map<uint8_t, string> quantization_tables;
 
   // huffman trees
-  map<uint8_t, HuffmanTree> dc_hts;
-  map<uint8_t, HuffmanTree> ac_hts;
+  map<uint8_t, HuffmanTree*> dc_hts;
+  map<uint8_t, HuffmanTree*> ac_hts;
 
   // width, height
   uint16_t w, h;

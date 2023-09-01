@@ -164,6 +164,12 @@ JpegDecoder::~JpegDecoder() {
   for (auto ptr: this->cr_bufs) {
     delete[] ptr;
   }
+  for (auto entry: this->dc_hts) {
+    delete entry.second;
+  }
+  for (auto entry: this->ac_hts) {
+    delete entry.second;
+  }
 }
 JpegDecoder::JpegDecoder(const char* filename):
   file(filename), bit_offset(0), w(0), h(0), restart_interval(0)
@@ -348,11 +354,9 @@ void JpegDecoder::handle_huffman(long long offset, int length) {
     uint8_t destination = ht_info & 0x0f;
 
     if (is_ac) {
-      this->ac_hts[destination] = HuffmanTree();
-      this->ac_hts[destination].init_with_nb_and_symbols(nb_sym, symbols);
+      this->ac_hts[destination] = new HuffmanTree(nb_sym, symbols);
     } else {
-      this->dc_hts[destination] = HuffmanTree();
-      this->dc_hts[destination].init_with_nb_and_symbols(nb_sym, symbols);
+      this->dc_hts[destination] = new HuffmanTree(nb_sym, symbols);
     }
 
     delete[] symbols;
@@ -633,7 +637,6 @@ int get_coefficient(uint8_t category, int bits) {
 int JpegDecoder::decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_component) {
   memset(dst, 0, sizeof(int) * 64);
   int i = 0;
-  HuffmanTree* ht; // use pointer here or the object construct and destruct will be invoked
   string* qt;
 
   // qt = component == component_t::Y ? this->qt_luma : this->qt_chroma;
@@ -644,8 +647,7 @@ int JpegDecoder::decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_comp
   // find a huffman entry in table for dc
   // ht = component == component_t::Y ? &this->ht_dc_luma : &this->ht_dc_chroma;
   uint8_t ht_dc_destination = this->scan_components[nth_component].table_destinations_packed.t_dc;
-  ht = &this->dc_hts[ht_dc_destination];
-  uint8_t dc_category = this->get_code_with_ht(ht);
+  uint8_t dc_category = this->get_code_with_ht(this->dc_hts.at(ht_dc_destination));
   // use the symbol corresponding to code as code_size for next read
   // symbol is also used as value category here
   uint32_t dc_code = this->read_bit_stream(dc_category);
@@ -657,10 +659,9 @@ int JpegDecoder::decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_comp
   // ac
   // ht = component == component_t::Y ? &this->ht_ac_luma : &this->ht_ac_chroma;
   uint8_t ht_ac_destination = this->scan_components[nth_component].table_destinations_packed.t_ac;
-  ht = &this->ac_hts[ht_ac_destination];
   while (i < 64) {
     // find a huffman entry in table for ac
-    uint8_t rrrrssss = this->get_code_with_ht(ht);
+    uint8_t rrrrssss = this->get_code_with_ht(this->ac_hts.at(ht_ac_destination));
     if (rrrrssss == 0) { // end of block in run-length coding
       break;
     }

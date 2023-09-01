@@ -11,4 +11,5 @@ gifenc
 gifdec
 gifdectest
 main
+main_jpeg_dec
 huffman
