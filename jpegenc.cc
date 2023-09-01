@@ -157,6 +157,8 @@ void JpegEncoder::output_sos() {
     fwrite("\x00\x3f\x00", 1, 3, stdout); // for baseline dct
 }
 
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
+
 // todo, handle width and height that is not 8x
 void JpegEncoder::get_YCbCr_from_source(
     size_t x, size_t y, size_t w, size_t h, size_t stride,
@@ -165,7 +167,7 @@ void JpegEncoder::get_YCbCr_from_source(
     float Yf, Cbf, Crf;
     for (size_t u = 0; u < h; u++) {
         for (size_t v = 0; v < w; v++) {
-            size_t i = (y + u) * stride + x + v;
+            size_t i = MIN(y + u, this->h - 1) * stride + MIN(x + v, this->w - 1);
             uint8_t _r = this->r[i];
             uint8_t _g = this->g[i];
             uint8_t _b = this->b[i];
@@ -293,9 +295,12 @@ void JpegEncoder::output_encoded_image_data() {
     int dc_y = 0;
     int dc_cr = 0;
     int dc_cb = 0;
+    
+    size_t mcu_wcount = (size_t)ceil((float)this->w / (float)mcu_w);
+    size_t mcu_hcount = (size_t)ceil((float)this->h / (float)mcu_h);
 
-    for (size_t mcu_y = 0; mcu_y < this->h / mcu_h; mcu_y++) {
-        for (size_t mcu_x = 0; mcu_x < this->w / mcu_w; mcu_x++) {
+    for (size_t mcu_y = 0; mcu_y < mcu_hcount; mcu_y++) {
+        for (size_t mcu_x = 0; mcu_x < mcu_wcount; mcu_x++) {
             this->get_YCbCr_from_source(
                 mcu_x * mcu_w, mcu_y * mcu_h, mcu_w, mcu_h, this->w,
                 this->Y_MCU, this->Cb_MCU, this->Cr_MCU
