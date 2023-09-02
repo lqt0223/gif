@@ -127,7 +127,7 @@ void JpegEncoder::output_hts() {
 
 void JpegEncoder::output_ht(bool is_chroma, bool is_ac, const HuffmanEnc& table, uint16_t* total_length, std::stringstream& total) {
     uint8_t dest = (is_ac << 4) | is_chroma;
-    auto [ nb_syms, symbols ] = table.to_spec();
+    const auto [ nb_syms, symbols ] = table.to_spec();
     total << dest << nb_syms << symbols;
     *total_length = *total_length + nb_syms.size() + symbols.size() + 1;
     // fwrite(table, sizeof(unsigned char), 64, stdout);
@@ -261,7 +261,8 @@ int JpegEncoder::encode_8x8_per_component(
     // encode ac
     rle_63(temp2 + 1, rle_results);
     for (auto rle: rle_results) {
-        auto [zero_length, ac_coeff] = rle;
+        const int ac_coeff = rle.second;
+        unsigned char zero_length = rle.first;
         if (zero_length == 0 && ac_coeff == 0) {
             auto eob_code_info = (is_chroma ? ht_chroma_ac : ht_luma_ac).at(0x00);
             this->bitstream.append_bit(eob_code_info.first, eob_code_info.second);

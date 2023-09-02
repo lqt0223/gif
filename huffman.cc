@@ -18,17 +18,17 @@ HuffmanTree::HuffmanTree(char nb_sym[16], const char* symbols) {
         size_t queue_prev_length = depth_queue.size();
         for (size_t i = 0; i < queue_prev_length; i++) {
             Node* node = depth_queue[i].get();
-            if (nb_sym_in_depth == 0) {
+            if (nb_sym_in_depth > 0) {
+                node->letter = symbols[j];
+                j++;
+                nb_sym_in_depth--;
+            } else {
                 auto left = std::make_shared<Node>();
                 auto right = std::make_shared<Node>();
                 node->left = left;
                 node->right = right;
                 depth_queue.push_back(left);
                 depth_queue.push_back(right);
-            } else {
-                node->letter = symbols[j];
-                j++;
-                nb_sym_in_depth--;
             }
         }
         for (size_t i = 0; i < queue_prev_length; i++) {
