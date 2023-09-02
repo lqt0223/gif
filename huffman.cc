@@ -1,19 +1,15 @@
 #include "huffman.h"
+#include <memory>
 #include <vector>
 
-HuffmanTree::~HuffmanTree() {
-    if (this->root != nullptr) {
-        Node::free(this->root);
-    }
-}
 // the nodes created here should all use dynamic allocation and should only be deallocated with the tree
 HuffmanTree::HuffmanTree(char nb_sym[16], const char* symbols) {
-    this->root = Node::new_node();
-    Node* root_left = Node::new_node();
-    Node* root_right = Node::new_node();
+    this->root = std::make_shared<Node>();
+    auto root_left = std::make_shared<Node>();
+    auto root_right = std::make_shared<Node>();
     this->root->left = root_left;
     this->root->right = root_right;
-    std::vector<Node*> depth_queue { root_left, root_right };
+    std::vector<std::shared_ptr<Node>> depth_queue { root_left, root_right };
     
     size_t j = 0;
     for (size_t depth = 0; depth < 16; depth++) {
@@ -21,10 +17,10 @@ HuffmanTree::HuffmanTree(char nb_sym[16], const char* symbols) {
 
         size_t queue_prev_length = depth_queue.size();
         for (size_t i = 0; i < queue_prev_length; i++) {
-            Node* node = depth_queue[i];
+            Node* node = depth_queue[i].get();
             if (nb_sym_in_depth == 0) {
-                Node* left = Node::new_node();
-                Node* right = Node::new_node();
+                auto left = std::make_shared<Node>();
+                auto right = std::make_shared<Node>();
                 node->left = left;
                 node->right = right;
                 depth_queue.push_back(left);
@@ -58,7 +54,7 @@ HuffmanTree::HuffmanTree(char nb_sym[16], const char* symbols) {
 // // for debugging
 void HuffmanTree::all_nodes() {
     std::string path;
-    Node::traverse_tree(this->root, path);
+    Node::traverse_tree(this->root.get(), path);
     printf("\n");
 }
 //

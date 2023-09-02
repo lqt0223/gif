@@ -110,7 +110,7 @@ class JpegDecoder {
   void reset_segments();
   void get_segments();
   uint32_t read_bit_stream(uint8_t length);
-  char get_code_with_ht(HuffmanTree* ht);
+  char get_code_with_ht(HuffmanTree& ht);
   int decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_component);
 public:
   explicit JpegDecoder(const char* filename);
@@ -121,8 +121,8 @@ public:
   map<uint8_t, string> quantization_tables;
 
   // huffman trees
-  map<uint8_t, HuffmanTree*> dc_hts;
-  map<uint8_t, HuffmanTree*> ac_hts;
+  map<uint8_t, HuffmanTree> dc_hts;
+  map<uint8_t, HuffmanTree> ac_hts;
 
   // width, height
   uint16_t w, h;

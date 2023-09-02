@@ -2,6 +2,7 @@
 #define HUFFMAN
 
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -9,11 +10,10 @@
 
 class HuffmanTree {
 public:
-    Node* root;
+    std::shared_ptr<Node> root;
     HuffmanTree(char nb_sym[16], const char* symbols);
     // char decode(unsigned int code, int n);
     void all_nodes(); 
-    ~HuffmanTree();
 };
 
 #endif

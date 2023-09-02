@@ -164,12 +164,6 @@ JpegDecoder::~JpegDecoder() {
   for (auto ptr: this->cr_bufs) {
     delete[] ptr;
   }
-  for (auto entry: this->dc_hts) {
-    delete entry.second;
-  }
-  for (auto entry: this->ac_hts) {
-    delete entry.second;
-  }
 }
 JpegDecoder::JpegDecoder(const char* filename):
   file(filename), bit_offset(0), w(0), h(0), restart_interval(0)
@@ -353,10 +347,11 @@ void JpegDecoder::handle_huffman(long long offset, int length) {
     bool is_ac = !!(ht_info >> 4);
     uint8_t destination = ht_info & 0x0f;
 
+    HuffmanTree ht(nb_sym, symbols);
     if (is_ac) {
-      this->ac_hts[destination] = new HuffmanTree(nb_sym, symbols);
+      this->ac_hts.insert({ destination, ht });
     } else {
-      this->dc_hts[destination] = new HuffmanTree(nb_sym, symbols);
+      this->dc_hts.insert({ destination, ht });
     }
 
     delete[] symbols;
@@ -609,8 +604,8 @@ void JpegDecoder::decode() {
 
 // read bit one by one from bitstream, while advancing in huffman tree.
 // When a leaf node is found, return
-char JpegDecoder::get_code_with_ht(HuffmanTree* ht) {
-  Node* cur = ht->root;
+char JpegDecoder::get_code_with_ht(HuffmanTree& ht) {
+  Node* cur = ht.root.get();
   while (true) {
     if (cur->left == nullptr && cur->right == nullptr && cur->letter != -1) {
       return cur->letter;
@@ -618,9 +613,9 @@ char JpegDecoder::get_code_with_ht(HuffmanTree* ht) {
     bool bit = this->read_bit_stream(1);
     // right
     if (bit == 1) {
-      cur = cur->right;
+      cur = cur->right.get();
     } else {
-      cur = cur->left;
+      cur = cur->left.get();
     }
   }
 }
