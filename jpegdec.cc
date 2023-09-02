@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ostream>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 #include "huffman.h"
@@ -312,7 +313,7 @@ void JpegDecoder::handle_sof0() {
       this->cr_bufs.push_back(buf_ptr);
     } 
   } else {
-    throw "not supported";
+    throw runtime_error("not supported");
   }
 }
 
