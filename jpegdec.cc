@@ -596,9 +596,7 @@ void JpegDecoder::decode() {
   }
   // output to stderr
   printf("P6\n%d %d\n255\n", this->w, this->h);
-  for (size_t i = 0; i < this->w*this->h*3; i++) {
-    printf("%c", output[i]);
-  }
+  fwrite(output, 1, this->w*this->h*3, stdout);
   
   delete[] output;
 }
@@ -631,31 +629,32 @@ int get_coefficient(uint8_t category, int bits) {
 }
 
 int JpegDecoder::decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_component) {
+  // 8x8的buffer全部清零
   memset(dst, 0, sizeof(int) * 64);
-  int i = 0;
+  // 已解码出来的coefficients，到达64个时则表示此数据单元已解码完成
+  int decoded_coeffs = 0;
   string* qt;
-
-  // qt = component == component_t::Y ? this->qt_luma : this->qt_chroma;
+  // 根据当前是哪个通道，选择对应的量化表
   uint8_t qt_destination = this->frame_components[nth_component].qt_destination;
   qt = &this->quantization_tables[qt_destination];
 
-  // dc
-  // find a huffman entry in table for dc
-  // ht = component == component_t::Y ? &this->ht_dc_luma : &this->ht_dc_chroma;
+  // DC解码
+  // 根据当前是哪个通道，选择对应的Huffman表
   uint8_t ht_dc_destination = this->scan_components[nth_component].table_destinations_packed.t_dc;
+  // 读取图片数据的bitstream，匹配到一个DC Category值（DC值）
   uint8_t dc_category = this->get_code_with_ht(this->dc_hts.at(ht_dc_destination));
   // use the symbol corresponding to code as code_size for next read
   // symbol is also used as value category here
   uint32_t dc_code = this->read_bit_stream(dc_category);
   int new_dc = old_dc + get_coefficient(dc_category, dc_code);
   // only one dc_coefficient, add it to buffer directly
-  dst[i] = new_dc * (*qt)[i];
-  i++;
+  dst[decoded_coeffs] = new_dc * (*qt)[decoded_coeffs];
+  decoded_coeffs++;
 
   // ac
   // ht = component == component_t::Y ? &this->ht_ac_luma : &this->ht_ac_chroma;
   uint8_t ht_ac_destination = this->scan_components[nth_component].table_destinations_packed.t_ac;
-  while (i < 64) {
+  while (decoded_coeffs < 64) {
     // find a huffman entry in table for ac
     uint8_t rrrrssss = this->get_code_with_ht(this->ac_hts.at(ht_ac_destination));
     if (rrrrssss == 0) { // end of block in run-length coding
@@ -664,12 +663,12 @@ int JpegDecoder::decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_comp
     uint8_t zero_count = rrrrssss >> 4;
     uint8_t ac_category = rrrrssss & 0x0f;
     // since the buffer is inited with zero, skip zero_counts
-    i += zero_count;
+    decoded_coeffs += zero_count;
     uint32_t ac_code = this->read_bit_stream(ac_category);
     // printf("%d %d %d %d\n", rrrrssss, zero_count, category, code);
     int ac_coefficient = get_coefficient(ac_category, ac_code);
-    dst[i] = ac_coefficient * (*qt)[i];
-    i++;
+    dst[decoded_coeffs] = ac_coefficient * (*qt)[decoded_coeffs];
+    decoded_coeffs++;
   }
 
   zigzag_rearrange_8x8(dst, this->buf_temp);
