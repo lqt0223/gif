@@ -327,10 +327,8 @@ void JpegEncoder::output_encoded_image_data() {
 // quantization tables should be transformed according to "quality" parameter
 // quality 50 example
 void JpegEncoder::init_qt_tables() {
-    for (size_t i = 0; i < 64; i++) {
-        this->qt_luma[i] = qt_luma_original[i];
-        this->qt_chroma[i] = qt_chroma_original[i];
-    }
+    this->qt_luma = qt_luma_original;
+    this->qt_chroma = qt_chroma_original;
 }
 
 void JpegEncoder::init_ht_tables() {

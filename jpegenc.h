@@ -49,8 +49,8 @@ class JpegEncoder {
 
     BitStream bitstream;
 
-    uint8_t qt_luma[64];
-    uint8_t qt_chroma[64];
+    const uint8_t* qt_luma;
+    const uint8_t* qt_chroma;
 
     HuffmanEnc ht_luma_dc;
     HuffmanEnc ht_luma_ac;
