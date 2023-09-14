@@ -35,9 +35,9 @@ void zigzag_rearrange_8x8(T* input, T* output) {
   }
 }
 
-// inverse DCT transform
+// IDCT（逆离散余弦变换），从频域到时域
 void inverse_dct_8x8(const int* freq_domain_input, int* time_domain_output) {
-  int i, j, u, v; // i, j: coord in time domain; u, v: coord in freq domain
+  int i, j, u, v; // i, j: 时域的坐标; u, v: 频域的坐标
   float s;
 
   for (i = 0; i < 8; i++) {
@@ -425,21 +425,22 @@ void JpegDecoder::get_segments() {
     this->file.seekg(seg_length, ios::cur); // skip to next segment
   }
 }
-// huffman code length is not greater than 16
-uint32_t JpegDecoder::read_bit_stream(uint8_t code_size) {
-  // the bit position - amount to shift left
+// 从当前bitstream已读位置，再读出code_size个位，得到一个值
+uint32_t JpegDecoder::read_bitstream_with_length(uint8_t code_size) {
+  // 每8位是1个字节，end_shift值的是读取的最后1个位的index在1个字节中的偏移量
   size_t end_shift = (this->bit_offset + code_size) % 8;
-  // the index position of bytestream
+  // 将要读取的位，所覆盖的起始字节和结束字节的index
   size_t start_index = this->bit_offset / 8;
   size_t end_index = (this->bit_offset + code_size) / 8;
 
   uint32_t code = 0;
+  // 从起始字节直到结束字节进行读取，对结束进行 与 操作
   for (uint32_t j = 0; j <= end_index - start_index; j++) {
     code |= (unsigned char)this->bitstream[start_index + j] << (8 * (end_index-start_index-j));
   }
-  // right shift to remove lsb
+  // 右移，去掉低位
   code >>= (8 - end_shift);
-  // mask to remove msb
+  // 使用mask操作去掉高位
   uint32_t mask = (1 << (code_size)) - 1;
   code &= mask;
 
@@ -601,16 +602,15 @@ void JpegDecoder::decode() {
   delete[] output;
 }
 
-// read bit one by one from bitstream, while advancing in huffman tree.
-// When a leaf node is found, return
-char JpegDecoder::get_code_with_ht(HuffmanTree& ht) {
+// 根据某Huffman table（二分查找树）从bitstream中找到一个编码
+char JpegDecoder::read_bitstream_with_ht(HuffmanTree& ht) {
   Node* cur = ht.root.get();
   while (true) {
+    // 不断从bitstream中读取一位，遇到1向右查找，遇到0向左查找。直到出现叶子节点
     if (cur->left == nullptr && cur->right == nullptr && cur->letter != -1) {
       return cur->letter;
     }
-    bool bit = this->read_bit_stream(1);
-    // right
+    bool bit = this->read_bitstream_with_length(1);
     if (bit == 1) {
       cur = cur->right.get();
     } else {
@@ -619,6 +619,7 @@ char JpegDecoder::get_code_with_ht(HuffmanTree& ht) {
   }
 }
 
+// 在某个category内，根据值的二进制表示 解码出原值
 int get_coefficient(uint8_t category, int bits) {
   int l = 1 << (category - 1);
   if (bits >= l) {
@@ -638,39 +639,44 @@ int JpegDecoder::decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_comp
   uint8_t qt_destination = this->frame_components[nth_component].qt_destination;
   qt = &this->quantization_tables[qt_destination];
 
-  // DC解码
+  // dc解码
   // 根据当前是哪个通道，选择对应的Huffman表
   uint8_t ht_dc_destination = this->scan_components[nth_component].table_destinations_packed.t_dc;
-  // 读取图片数据的bitstream，匹配到一个DC Category值（DC值）
-  uint8_t dc_category = this->get_code_with_ht(this->dc_hts.at(ht_dc_destination));
-  // use the symbol corresponding to code as code_size for next read
-  // symbol is also used as value category here
-  uint32_t dc_code = this->read_bit_stream(dc_category);
+  // 读取图片数据bitstream，直到取出一个编码，作为dc category值
+  uint8_t dc_category = this->read_bitstream_with_ht(this->dc_hts.at(ht_dc_destination));
+  // 再从图片数据bitstream中读取dc_category位
+  uint32_t dc_code = this->read_bitstream_with_length(dc_category);
+  // 得到dc的差值和新值
   int new_dc = old_dc + get_coefficient(dc_category, dc_code);
-  // only one dc_coefficient, add it to buffer directly
+  // 进行反量化
   dst[decoded_coeffs] = new_dc * (*qt)[decoded_coeffs];
   decoded_coeffs++;
 
-  // ac
-  // ht = component == component_t::Y ? &this->ht_ac_luma : &this->ht_ac_chroma;
+  // ac解码
+  // 根据当前是哪个通道，选择对应的Huffman表
   uint8_t ht_ac_destination = this->scan_components[nth_component].table_destinations_packed.t_ac;
   while (decoded_coeffs < 64) {
-    // find a huffman entry in table for ac
-    uint8_t rrrrssss = this->get_code_with_ht(this->ac_hts.at(ht_ac_destination));
-    if (rrrrssss == 0) { // end of block in run-length coding
+    // 读取图片数据bitstream，直到取出一个编码，作为AC RRRRSSSS值
+    uint8_t rrrrssss = this->read_bitstream_with_ht(this->ac_hts.at(ht_ac_destination));
+    // 此值为0，表示在游程编码中，接下来都是0了
+    if (rrrrssss == 0) {
       break;
     }
+    // 前4位为前置0的个数，后4位为N个0后紧随的那个数的ac category
     uint8_t zero_count = rrrrssss >> 4;
     uint8_t ac_category = rrrrssss & 0x0f;
-    // since the buffer is inited with zero, skip zero_counts
+    // 在解码结果中填入N个前置0（这里是用跳过index来实现的）
     decoded_coeffs += zero_count;
-    uint32_t ac_code = this->read_bit_stream(ac_category);
-    // printf("%d %d %d %d\n", rrrrssss, zero_count, category, code);
+    // 再从图片数据bitstream中读取ac_category位
+    uint32_t ac_code = this->read_bitstream_with_length(ac_category);
+    // 得到ac的值
     int ac_coefficient = get_coefficient(ac_category, ac_code);
+    // 进行反量化
     dst[decoded_coeffs] = ac_coefficient * (*qt)[decoded_coeffs];
     decoded_coeffs++;
   }
 
+  // z字扫描和IDCT变换
   zigzag_rearrange_8x8(dst, this->buf_temp);
   inverse_dct_8x8(this->buf_temp, dst);
   return new_dc;

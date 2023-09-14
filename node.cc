@@ -1,8 +1,6 @@
 #include "node.h"
 #include <iostream>
 
-Node::Node(): letter(-1), left(nullptr), right(nullptr) {}
-
 void Node::traverse_tree(Node* node, std::string& path) { // NOLINT(misc-no-recursion)
     // if it is a leaf node, log
     if (node->left == nullptr && node->right == nullptr && node->letter != -1) {

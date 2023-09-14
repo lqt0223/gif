@@ -55,12 +55,12 @@ typedef union {
 
 typedef enum {
   APP0 = 0,
-  DQT, // LUMA AND CHROMA
-  SOF0,
-  DHT, // DC AND AC, LUMA AND CHROMA
-  SOS,
+  DQT, // Define Quantization Table  LUMA AND CHROMA
+  SOF0, // Start of Frame - 0
+  DHT, // Define Huffman Table  DC AND AC, LUMA AND CHROMA
+  SOS, // Start of Scan
   COMMENT,
-  DRI,
+  DRI, // Define Restart Interval
 } segment_t;
 
 typedef enum {
@@ -109,8 +109,8 @@ class JpegDecoder {
   void handle_restart();
   void reset_segments();
   void get_segments();
-  uint32_t read_bit_stream(uint8_t length);
-  char get_code_with_ht(HuffmanTree& ht);
+  uint32_t read_bitstream_with_length(uint8_t length);
+  char read_bitstream_with_ht(HuffmanTree& ht);
   int decode_8x8_per_component(int* dst, int old_dc, uint8_t nth_component);
 public:
   explicit JpegDecoder(const char* filename);
